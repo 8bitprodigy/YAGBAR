@@ -7,18 +7,6 @@
 #include "defs.h"
 
 
-#ifndef YAGBAR_BITS_PRECISION
-	#define YAGBAR_BITS_PRECISION (10)
-#endif
-/*  Number of YAGBAR_Units in a side of a
-	spatial square, i.e. the fixed point
-	scaling. */
-#define YAGBAR_UNITS_PER_SQUARE (1 << YAGBAR_BITS_PRECISION) 
-
-#define YAGBAR_INFINITY 2000000000
-#define YAGBAR_U        YAGBAR_UNITS_PER_SQUARE ///< shorthand for YAGBAR_UNITS_PER_SQUARE
-
-
 /*  Smallest spatial unit, there is
 	YAGBAR_UNITS_PER_SQUARE units in a square's
 	length. This effectively serves the purpose of
@@ -31,13 +19,13 @@ typedef struct
     YAGBAR_Unit x;
     YAGBAR_Unit y;
 } 
-YAGBAR_Vector2D;
+YAGBAR_Vec2;
 
 typedef struct
 {
-    YAGBAR_Vector2D position;
+    YAGBAR_Vec2 position;
     YAGBAR_Unit     angle;  
-    YAGBAR_Vector2D resolution;
+    YAGBAR_Vec2 resolution;
     /*  Shear offset in pixels (0 => no shear), can simulate
         looking up/down. */
     s16             shear; 
@@ -47,17 +35,40 @@ YAGBAR_Camera;
 
 typedef struct
 {
-    YAGBAR_Vector2D start;
-    YAGBAR_Vector2D direction;
+    YAGBAR_Vec2 start;
+    YAGBAR_Vec2 direction;
 } 
 YAGBAR_Ray;
 
 typedef struct
 {
-    uint16_t max_hits;
-    uint16_t max_steps;
+    u16 max_hits;
+    u16 max_steps;
 } 
 YAGBAR_RayConstraints;
+
+typedef struct
+{
+    YAGBAR_Vec2 position;
+    YAGBAR_Unit z;
+    YAGBAR_Unit radius;
+    u8          kind;
+    u8          state;
+    u8          health;
+    u8          armor;
+    u8          target;
+    u8          sprite_index;
+    union {
+        u8 flags;
+        struct {
+            bool visible   :1;
+            bool flip_x    :1;
+            bool flip_y    :1;
+            bool fullbright:1;
+        };
+    };
+}
+YAGBAR_Entity;
 
 
 void 
@@ -67,6 +78,9 @@ YAGBAR_initRayConstraints(YAGBAR_RayConstraints *constraints);
 YAGBAR_Unit
 YAGBAR_heightAt(s16 x, s16 y);
 
+
+extern YAGBAR_Entity YAGBAR_entities[YAGBAR_MAX_ENTITIES];
+extern u8            YAGBAR_entityCount;
 
 
 #endif /* YAGBAR_CORE_H */

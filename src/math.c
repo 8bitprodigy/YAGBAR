@@ -45,10 +45,10 @@ MATH_ctg(YAGBAR_Unit input)
 }
 
 IWRAM_CODE 
-YAGBAR_Vector2D 
+YAGBAR_Vec2 
 MATH_angleToDirection(YAGBAR_Unit angle)
 {
-    YAGBAR_Vector2D result;
+    YAGBAR_Vec2 result;
 
     result.x = MATH_cos(angle);
     result.y = -1 * MATH_sin(angle);
@@ -83,7 +83,7 @@ MATH_sqrt(YAGBAR_Unit value)
 
 IWRAM_CODE
 YAGBAR_Unit 
-MATH_dist(YAGBAR_Vector2D p1, YAGBAR_Vector2D p2)
+MATH_dist(YAGBAR_Vec2 p1, YAGBAR_Vec2 p2)
 {
     YAGBAR_Unit 
         dx = p2.x - p1.x,
@@ -128,10 +128,10 @@ MATH_dist(YAGBAR_Vector2D p1, YAGBAR_Vector2D p2)
 }
 
 IWRAM_CODE 
-YAGBAR_Vector2D 
-MATH_normalize(YAGBAR_Vector2D v)
+YAGBAR_Vec2 
+MATH_normalize(YAGBAR_Vec2 v)
 {
-    YAGBAR_Vector2D result;
+    YAGBAR_Vec2 result;
     YAGBAR_Unit l = MATH_len(v);
     l = MATH_nonZero(l);
 
@@ -144,7 +144,7 @@ MATH_normalize(YAGBAR_Vector2D v)
 IWRAM_CODE 
 static inline
 YAGBAR_Unit 
-MATH_vectorsAngleCos(YAGBAR_Vector2D v1, YAGBAR_Vector2D v2)
+MATH_vectorsAngleCos(YAGBAR_Vec2 v1, YAGBAR_Vec2 v2)
 {
     v1 = MATH_normalize(v1);
     v2 = MATH_normalize(v2);

@@ -138,9 +138,9 @@ typedef struct
         (horizontal). */
     YAGBAR_Unit     texture_coord; 
     /*  Collided square coordinates. */
-    YAGBAR_Vector2D square;   
+    YAGBAR_Vec2 square;   
     /*  Exact collision position in YAGBAR_Units. */
-    YAGBAR_Vector2D position;  
+    YAGBAR_Vec2 position;  
     /*  Value returned by array function (most often this will be the floor 
         height). */   
     YAGBAR_Unit     array_value;  
@@ -158,7 +158,7 @@ RENDER_HitResult;
 */
 typedef struct
 {
-    YAGBAR_Vector2D  position;    // < On-screen position.
+    YAGBAR_Vec2  position;    // < On-screen position.
     s8               is_wall;     // < Whether the pixel is a wall or a floor/ceiling.
     s8               is_floor;    // < Whether the pixel is floor or ceiling.
     s8               is_horizon;  // < If the pixel belongs to horizon segment.
@@ -168,7 +168,7 @@ typedef struct
     RENDER_HitResult hit;         // < Corresponding ray hit.
     /*  Normalized (0 to YAGBAR_UNITS_PER_SQUARE - 1)
         texture coordinates. */
-    YAGBAR_Vector2D  texCoords; 
+    YAGBAR_Vec2  texCoords; 
 } 
 RENDER_PixelInfo;
 
@@ -232,9 +232,9 @@ RENDER_castRay(YAGBAR_Ray ray, RENDER_ArrayFunction array_func);
 */
 YAGBAR_Unit 
 RENDER_castRay3D(
-    YAGBAR_Vector2D       pos1, 
+    YAGBAR_Vec2       pos1, 
     YAGBAR_Unit           height1, 
-    YAGBAR_Vector2D       pos2, 
+    YAGBAR_Vec2       pos2, 
     YAGBAR_Unit           height2,
     RENDER_ArrayFunction  floor_height_func, 
     RENDER_ArrayFunction  ceiling_height_func,
@@ -246,7 +246,7 @@ RENDER_castRay3D(
 inline
 RENDER_PixelInfo 
 RENDER_mapToScreen(
-    YAGBAR_Vector2D world_position, 
+    YAGBAR_Vec2 world_position, 
     YAGBAR_Unit     height,
     YAGBAR_Camera   camera
 );
@@ -396,7 +396,7 @@ RENDER_renderSimple(
 void 
 RENDER_moveCameraWithCollision(
     YAGBAR_Camera        *camera, 
-    YAGBAR_Vector2D       planeOffset,
+    YAGBAR_Vec2       planeOffset,
     YAGBAR_Unit           heightOffset, 
     RENDER_ArrayFunction  floorHeightFunc,
     RENDER_ArrayFunction  ceilingHeightFunc, 
@@ -410,6 +410,7 @@ u32
 RENDER_getFrame(void);
 u16 *
 RENDER_getDrawBuffer(void);
+
 
 
 

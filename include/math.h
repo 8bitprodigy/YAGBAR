@@ -168,7 +168,7 @@ MATH_abs(YAGBAR_Unit value)
 }
 
 inline 
-YAGBAR_Vector2D 
+YAGBAR_Vec2 
 MATH_angleToDirection(YAGBAR_Unit angle);
 
 /*  Cos function.
@@ -224,27 +224,27 @@ MATH_ctg(YAGBAR_Unit input);
 
 /// Normalizes given vector to have YAGBAR_UNITS_PER_SQUARE length.
 inline
-YAGBAR_Vector2D 
-MATH_normalize(YAGBAR_Vector2D v);
+YAGBAR_Vec2 
+MATH_normalize(YAGBAR_Vec2 v);
 
 /// Computes a cos of an angle between two vectors.
 inline
 YAGBAR_Unit 
-MATH_vectorsAngleCos(YAGBAR_Vector2D v1, YAGBAR_Vector2D v2);
+MATH_vectorsAngleCos(YAGBAR_Vec2 v1, YAGBAR_Vec2 v2);
 
 inline
 uint16_t 
 MATH_sqrt(YAGBAR_Unit value);
 inline
 YAGBAR_Unit 
-MATH_dist(YAGBAR_Vector2D p1, YAGBAR_Vector2D p2);
+MATH_dist(YAGBAR_Vec2 p1, YAGBAR_Vec2 p2);
 
 IWRAM_CODE
 static inline
 YAGBAR_Unit 
-MATH_len(YAGBAR_Vector2D v)
+MATH_len(YAGBAR_Vec2 v)
 {
-    YAGBAR_Vector2D zero;
+    YAGBAR_Vec2 zero;
     zero.x = 0;
     zero.y = 0;
 
@@ -265,7 +265,7 @@ MATH_degreesToUnitsAngle(int16_t degrees);
 IWRAM_CODE
 static inline 
 int8_t 
-MATH_pointIsLeftOfRay(YAGBAR_Vector2D point, YAGBAR_Ray ray)
+MATH_pointIsLeftOfRay(YAGBAR_Vec2 point, YAGBAR_Ray ray)
 {
     YAGBAR_Unit dX = point.x - ray.start.x;
     YAGBAR_Unit dY = point.y - ray.start.y;

@@ -6,13 +6,16 @@
 
 
 extern const s8 
-level[LEVEL_W * LEVEL_H];
+level[];
 
 extern const u8
-floorColorMap[LEVEL_W * LEVEL_H];
+floorColorMap[];
 
 extern const u8 
-spriteORB[16 * 16];
+spriteORB[];
+
+extern const u8 *
+DATA_spriteTextures[];
 
 extern const u8
 floor_tex[];

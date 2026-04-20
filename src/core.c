@@ -3,6 +3,10 @@
 #include "render.h"
 
 
+YAGBAR_Entity YAGBAR_entities[YAGBAR_MAX_ENTITIES] = {0};
+u8            YAGBAR_entityCount            =  0;
+
+
 void 
 YAGBAR_initCamera(YAGBAR_Camera *camera)
 {

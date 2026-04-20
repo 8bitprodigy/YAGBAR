@@ -11,6 +11,9 @@
 /*******************************************************************************
 	Global helper variables, for precomputing stuff etc.
 *******************************************************************************/
+static u8                    _RENDER_visibleSprites[RENDER_NUM_VISIBLE_SPRITES];
+static YAGBAR_Unit           _RENDER_spriteDist[RENDER_NUM_VISIBLE_SPRITES];
+static u8                    _RENDER_spriteCount;
 static YAGBAR_Unit           _RENDER_depthBuf[RENDER_W]      = {0};
 static YAGBAR_Camera         _RENDER_camera;
 static YAGBAR_Unit           _RENDER_horizontalDepthStep     = 0; 
@@ -41,8 +44,170 @@ _RENDER_fovCorrectionFactor(YAGBAR_Unit fov);
     PRIVATE FUNCTIONS
 *******************************************************************************/
 IWRAM_CODE
-static inline 
-u8
+static inline
+void
+sortSprites(YAGBAR_Camera *cam)
+{
+    YAGBAR_Vec2 cam_dir = MATH_angleToDirection(cam->angle);
+    _RENDER_spriteCount = 0;
+    /* Cull and compute distances */
+    for (u8 i = 0; i < YAGBAR_entityCount; i++) {
+        YAGBAR_Entity *ent = &YAGBAR_entities[i];
+
+        YAGBAR_Unit
+            dx = ent->position.x - cam->position.x,
+            dy = ent->position.y - cam->position.y;
+
+            /* Cull if behind camera */
+            if ((dx * cam_dir.x + dy * cam_dir.y) <= 0) continue;
+
+            _RENDER_spriteDist[_RENDER_spriteCount]     = MATH_abs(dx) + MATH_abs(dy);
+            _RENDER_visibleSprites[_RENDER_spriteCount] = i;
+            _RENDER_spriteCount++;
+
+            if (_RENDER_spriteCount >= RENDER_NUM_VISIBLE_SPRITES) break;
+    }
+
+    /* Insertion sort furthest first */
+    for (u8 i = 0; i < _RENDER_spriteCount; i++) {
+        u8          key      = _RENDER_visibleSprites[i];
+        YAGBAR_Unit key_dist = _RENDER_spriteDist[i];
+        s8 j = i - 1;
+        while (j >= 0 && _RENDER_spriteDist[j] < key_dist) {
+            _RENDER_visibleSprites[j + 1] = _RENDER_visibleSprites[j];
+            _RENDER_spriteDist[j + 1]     = _RENDER_spriteDist[j];
+            j--;
+        }
+        _RENDER_visibleSprites[j + 1] = key;
+        _RENDER_spriteDist[j + 1]     = key_dist;
+    }
+}
+
+IWRAM_CODE
+static void
+drawSprites(YAGBAR_Camera *cam)
+{
+    sortSprites(cam);
+
+    YAGBAR_Vec2 cam_dir = MATH_angleToDirection(cam->angle);
+    YAGBAR_Unit 
+        cam_right_x =  cam_dir.y,
+        cam_right_y = -cam_dir.x;
+
+    for (u8 si = 0; si < _RENDER_spriteCount; si++) {
+        YAGBAR_Entity *ent = &YAGBAR_entities[_RENDER_visibleSprites[si]];
+
+        /* Transform into camera space */
+        YAGBAR_Unit 
+            rel_x = ent->position.x - cam->position.x,
+            rel_y = ent->position.y - cam->position.y,
+
+            depth  = (rel_x * cam_dir.x   + rel_y * cam_dir.y)   
+                    / YAGBAR_UNITS_PER_SQUARE,
+            strafe = (rel_x * cam_right_x + rel_y * cam_right_y) 
+                    / YAGBAR_UNITS_PER_SQUARE;
+
+        if (depth <= 0) continue;
+
+        const YAGBAR_Unit RW = cam->resolution.x;
+        const YAGBAR_Unit RH = cam->resolution.y;
+        /* Screen X center */
+        YAGBAR_Unit fov_depth = MATH_fast_div(depth * RENDER_HORIZONTAL_FOV_TAN, YAGBAR_UNITS_PER_SQUARE);
+        int screen_x = RENDER_W / 2
+            + (int)MATH_fast_div(strafe * (RENDER_W >> 1), fov_depth);
+
+        /* Screen height */
+        int sprite_h = (int)RENDER_perspectiveScaleVertical(RH, depth);
+        if (sprite_h <= 0) continue;
+
+        int
+            sprite_w = MATH_fast_div((sprite_h * RW), RH),
+
+            draw_x0 = screen_x          - (sprite_w >> 1),
+            draw_x1 = screen_x          + (sprite_w >> 1);
+        YAGBAR_Unit world_offset = YAGBAR_UNITS_PER_SQUARE - cam->height;
+        int 
+            screen_center_y = _RENDER_middleRow 
+                    - (int)RENDER_perspectiveScaleVertical(world_offset, depth) 
+                    * RH / YAGBAR_UNITS_PER_SQUARE,
+
+            draw_y0 = screen_center_y - (sprite_h >> 1),
+            draw_y1 = screen_center_y + (sprite_h >> 1);
+
+        const u8 *tex = DATA_spriteTextures[ent->sprite_index];
+        u8
+            spr_w = tex[0],
+            spr_h = tex[1];
+        const u8 *texture = tex + 2;
+
+        int sx0 = -1, sx1 = -1;
+        int cur0 = -1, cur1 = -1;
+
+        for (int sx = draw_x0; sx < draw_x1; sx++) {
+            if (sx < 0 || sx >= RW) continue;
+            if (depth < _RENDER_depthBuf[sx]) {
+                if (cur0 == -1) cur0 = sx;
+                cur1 = sx;
+            } else {
+                if (cur0 != -1) {
+                    /* keep run closest to center */
+                    if (
+                        sx0 == -1 
+                        || MATH_abs(cur0 + cur1 - 2 * screen_x) 
+                        < MATH_abs(sx0 + sx1 - 2 * screen_x)
+                    ) {
+                        sx0 = cur0;
+                        sx1 = cur1;
+                    }
+                    cur0 = cur1 = -1;
+                }
+            }
+        }
+
+        /* handle run that reaches end */
+        if (cur0 != -1) {
+            if (
+                sx0 == -1 
+                || MATH_abs(cur0 + cur1 - 2 * screen_x) 
+                < MATH_abs(sx0 + sx1 - 2 * screen_x)
+            ) {
+                sx0 = cur0;
+                sx1 = cur1;
+            }
+        }
+
+        if (sx0 == -1) continue;
+
+        /* draw horizontally row by row */
+        u8 shade = (u8)(depth >> DEPTH_SHIFT_AMOUNT);
+
+        for (int sy = draw_y0; sy < draw_y1; sy++) {
+            if (sy < 0 || sy >= RH) continue;
+
+            int ty = ((sy - draw_y0) * spr_h) / sprite_h;
+
+            for (int sx = sx0; sx <= sx1; sx++) {
+                int tx   = ((sx - draw_x0) * spr_w) / sprite_w;
+                u8 color = texture[ty * spr_w + tx];
+                if (color == RENDER_PAL_TRANSPARENT) continue;
+
+                register u8  base       = color & 0xF0;
+                register s16 shaded     = (s16)color - (s16)shade;
+                shaded                 &= ~(shaded >> 15);
+                register s16 below_base = shaded - (s16)base;
+                shaded                 &= ~(below_base >> 15);
+                color                   = (u8)shaded;
+
+                u16 *addr = _RENDER_drawBuf + ((sy * (SCREEN_W >> 1)) + sx);
+                *addr     = color | (color << 8);
+            }
+        }
+    }
+}
+
+
+IWRAM_CODE
+static inline u8
 sampleTexture(
   const u8    *tex,
   YAGBAR_Unit  tx, 
@@ -85,7 +250,9 @@ pixelFunc(RENDER_PixelInfo *p)
         // Side-faces (N/S vs E/W) get a subtle brightness boost.
     #if (DEPTH_SHADE_WALLS || USE_SIDE_SHADING)
         shade  = 
-        #if USE_SIDE_SHADING
+        #if USE_SIDE_SHADING == 1
+                1 - (p->hit.direction & 1)
+        #else
                 4 - (p->hit.direction)
         #endif /* USE_SIDE_SHADING */
         #if (USE_SIDE_SHADING && DEPTH_SHADE_WALLS)
@@ -617,55 +784,52 @@ _RENDER_columnFunctionSimple(
     p.position.x = x;
     p.wall_height = RENDER_UNITS_PER_SQUARE;
 
-    if (hitCount > 0)
-    {
+    if (hitCount > 0) {
         RENDER_HitResult hit = hits[0];
+        _RENDER_depthBuf[x] = hit.distance;
 
         u8 goOn = 1;
 
-        if (_RENDER_rollFunction != 0 && RENDER_COMPUTE_WALL_TEXCOORDS == 1)
-        {
-        if (hit.array_value == 0)
-        {
-            // standing inside door square, looking out => move to the next hit
+        if (_RENDER_rollFunction != 0 && RENDER_COMPUTE_WALL_TEXCOORDS == 1) {
+            if (hit.array_value == 0) {
+                // standing inside door square, looking out => move to the next hit
 
-            if (hitCount > 1)
-            hit = hits[1];
-            else
-            goOn = 0;
-        }
-        else
-        {
-            // normal hit, check the door roll
+                if (hitCount > 1)
+                    hit = hits[1];
+                else
+                    goOn = 0;
+            }
+            else {
+                // normal hit, check the door roll
 
-            YAGBAR_Unit texCoordMod = MATH_fast_mod(hit.texture_coord, RENDER_UNITS_PER_SQUARE);
+                YAGBAR_Unit texCoordMod = MATH_fast_mod(hit.texture_coord, RENDER_UNITS_PER_SQUARE);
 
-            s8 unrolled = hit.doorRoll >= 0 ?
-            (hit.doorRoll > texCoordMod) :
-            (texCoordMod > RENDER_UNITS_PER_SQUARE + hit.doorRoll);
+                s8 unrolled = hit.doorRoll >= 0 ?
+                (hit.doorRoll > texCoordMod) :
+                (texCoordMod > RENDER_UNITS_PER_SQUARE + hit.doorRoll);
 
-            if (unrolled)
-            {
-            goOn = 0;
-
-            if (hitCount > 1) /* should probably always be true (hit on square
-                                exit) */
-            {
-                if (MATH_fast_mod(hit.direction, 2) != MATH_fast_mod(hits[1].direction, 2))
+                if (unrolled)
                 {
-                // hit on the inner side
-                hit = hits[1];
-                goOn = 1;
-                }
-                else if (hitCount > 2)
-                {
-                // hit on the opposite side
-                hit = hits[2];
-                goOn = 1;
+                    goOn = 0;
+
+                    if (hitCount > 1) { /* should probably always be true (hit on square
+                                        exit) */
+                        if (
+                            MATH_fast_mod(hit.direction, 2) 
+                            != MATH_fast_mod(hits[1].direction, 2)
+                        ) {
+                            // hit on the inner side
+                            hit = hits[1];
+                            goOn = 1;
+                        }
+                        else if (hitCount > 2) {
+                            // hit on the opposite side
+                            hit = hits[2];
+                            goOn = 1;
+                        }
+                    }
                 }
             }
-            }
-        }
         }
 
         p.hit = hit;
@@ -709,6 +873,7 @@ _RENDER_columnFunctionSimple(
     }
     else {
         _RENDER_makeInfiniteHit(&p.hit,&ray);
+        _RENDER_depthBuf[x] = YAGBAR_INFINITY;
     }
 
     // draw ceiling
@@ -852,8 +1017,8 @@ RENDER_castRayMultiHit(
     YAGBAR_RayConstraints constraints
 )
 {
-    YAGBAR_Vector2D currentPos = ray.start;
-    YAGBAR_Vector2D currentSquare;
+    YAGBAR_Vec2 currentPos = ray.start;
+    YAGBAR_Vec2 currentSquare;
 
     currentSquare.x = MATH_divRoundDown(ray.start.x,RENDER_UNITS_PER_SQUARE);
     currentSquare.y = MATH_divRoundDown(ray.start.y,RENDER_UNITS_PER_SQUARE);
@@ -863,9 +1028,9 @@ RENDER_castRayMultiHit(
     YAGBAR_Unit squareType = arrayFunc(currentSquare.x,currentSquare.y);
 
     // DDA variables
-    YAGBAR_Vector2D nextSideDist; // dist. from start to the next side in given axis
-    YAGBAR_Vector2D delta;
-    YAGBAR_Vector2D step;         // -1 or 1 for each axis
+    YAGBAR_Vec2 nextSideDist; // dist. from start to the next side in given axis
+    YAGBAR_Vec2 delta;
+    YAGBAR_Vec2 step;         // -1 or 1 for each axis
     s8 stepHorizontal = 0; // whether the last step was hor. or vert.
 
     nextSideDist.x = 0;
@@ -1097,10 +1262,10 @@ RENDER_castRaysMultiHit(
     YAGBAR_RayConstraints constraints
 )
 {
-    YAGBAR_Vector2D dir1 =
+    YAGBAR_Vec2 dir1 =
         MATH_angleToDirection(cam.angle - RENDER_HORIZONTAL_FOV_HALF);
 
-    YAGBAR_Vector2D dir2 =
+    YAGBAR_Vec2 dir2 =
         MATH_angleToDirection(cam.angle + RENDER_HORIZONTAL_FOV_HALF);
 
     /* We scale the side distances so that the middle one is
@@ -1191,7 +1356,7 @@ RENDER_renderComplex(
 IWRAM_CODE 
 void 
 RENDER_renderSimple(
-    YAGBAR_Camera cam, 
+    YAGBAR_Camera        cam, 
     RENDER_ArrayFunction floorHeightFunc,
     RENDER_ArrayFunction typeFunc, 
     RENDER_ArrayFunction rollFunc,
@@ -1243,6 +1408,8 @@ RENDER_renderSimple(
 #if RENDER_COMPUTE_FLOOR_TEXCOORDS == 1
     _RENDER_floorPixelDistances = 0;
 #endif
+
+    drawSprites(&cam);
 }
 
 IWRAM_CODE 
@@ -1308,9 +1475,9 @@ RENDER_perspectiveScaleHorizontalInverse(
 IWRAM_CODE 
 YAGBAR_Unit 
 RENDER_castRay3D(
-    YAGBAR_Vector2D       pos1, 
+    YAGBAR_Vec2       pos1, 
     YAGBAR_Unit           height1, 
-    YAGBAR_Vector2D       pos2, 
+    YAGBAR_Vec2       pos2, 
     YAGBAR_Unit           height2,
     RENDER_ArrayFunction  floorHeightFunc, 
     RENDER_ArrayFunction  ceilingHeightFunc,
@@ -1388,7 +1555,7 @@ IWRAM_CODE
 void 
 RENDER_moveCameraWithCollision(
     YAGBAR_Camera *camera, 
-    YAGBAR_Vector2D planeOffset,
+    YAGBAR_Vec2 planeOffset,
     YAGBAR_Unit heightOffset, 
     RENDER_ArrayFunction floorHeightFunc,
     RENDER_ArrayFunction ceilingHeightFunc, 
@@ -1401,8 +1568,8 @@ RENDER_moveCameraWithCollision(
     if (movesInPlane || force) {
         s16 xSquareNew, ySquareNew;
 
-        YAGBAR_Vector2D corner; // BBox corner in the movement direction
-        YAGBAR_Vector2D cornerNew;
+        YAGBAR_Vec2 corner; // BBox corner in the movement direction
+        YAGBAR_Vec2 cornerNew;
 
         s16 xDir = planeOffset.x > 0 ? 1 : -1;
         s16 yDir = planeOffset.y > 0 ? 1 : -1;
@@ -1497,8 +1664,8 @@ RENDER_moveCameraWithCollision(
                 elevators due to vertical only movement. This code can get executed
                 when force == 1. */
 
-                YAGBAR_Vector2D squarePos;
-                YAGBAR_Vector2D newPos;
+                YAGBAR_Vec2 squarePos;
+                YAGBAR_Vec2 newPos;
 
                 squarePos.x = xSquare * RENDER_UNITS_PER_SQUARE;
                 squarePos.y = ySquare * RENDER_UNITS_PER_SQUARE;

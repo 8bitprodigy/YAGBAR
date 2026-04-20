@@ -18,82 +18,9 @@
 
 #include "yagbar.h"
 
-// mGBA debug register
-/*
-#define REG_DEBUG_STRING ((volatile char*)0x04FFF600)
-#define REG_DEBUG_FLAGS  ((volatile u16*)0x04FFF700)
-#define DEBUG_ENABLE     (0x0100)
-//*/
-// ---------------------------------------------------------------------------
-// raycastlib config  (must come BEFORE the #include)
-// ---------------------------------------------------------------------------
-
-#define RCL_PIXEL_FUNCTION             pixelFunc
-//#define RCL_COLUMN_FUNCTION            flatColumnFunc
-#define RCL_RS_HEIGHT_FN               heightAt
-#define RCL_USE_DIST_APPROX            2
-#define RCL_COMPUTE_FLOOR_DEPTH        1
-#define RCL_COMPUTE_CEILING_DEPTH      1
-#define RCL_COMPUTE_FLOOR_TEXCOORDS    0
-#define RCL_USE_COS_LUT                2
-#define RCL_UNIT_DIVISOR_NUM_SHIFTS   (0)
-#define RCL_UNITS_PER_SQUARE          (1024 >> RCL_UNIT_DIVISOR_NUM_SHIFTS)
-#define RCL_HORIZONTAL_FOV            (RCL_UNITS_PER_SQUARE / 4)
-#define RCL_VERTICAL_FOV              (RCL_UNITS_PER_SQUARE / 3)
-
-#define RAYCASTLIB_GBA_IMPLEMENTATION
-
-
-
-#define DEBUG_PROFILE        1
-#define WALLS_TEXTURED       1
-#define DEPTH_SHADE_WALLS    1
-#define DEPTH_SHADE_FLOOR    1
-#define DEPTH_SHADE_CEILING  1
-#define DEPTH_SHIFT_AMOUNT  11
-#define USE_SIDE_SHADING     1
-#define TEXTURED_FLOOR       0
-#define TEXTURED_CEILING     0
-#define COLORED_FLOOR        0
- 
-// ---------------------------------------------------------------------------
-// Screen / GBA constants
-// ---------------------------------------------------------------------------
-#define RENDER_W      120
-#define SCREEN_W      240
-#define SCREEN_H      160
-#define CAMERA_HEIGHT ((RCL_UNITS_PER_SQUARE >> 3) * 9)
-#define TURN_SPEED    (16 >> RCL_UNIT_DIVISOR_NUM_SHIFTS)   // RCL angle units per frame
-#define MOVE_SPEED    (192 >> RCL_UNIT_DIVISOR_NUM_SHIFTS)   // RCL sub-units per frame  (~0.3 squares)
-
- 
-// Mode 4 VRAM is 8-bit pixels but the bus is 16-bit wide, so we can only
-// write 16-bit (halfword) aligned pairs.  Helper: write a single palette
-// index to an (x, y) position safely.
-//
-// The back-buffer page starts at 0x0600A000 when using page-flipping
-// (vid_flip / VID_PAGE_B).  Tonc exposes m4_mem / m4_mem_back for each page.
- 
-// palette index → colour map (we fill pal_bg_mem[] at startup)
-#define PAL_BLACK   0
-#define PAL_WALL   10
-#define PAL_FLOOR 163
-#define PAL_CEIL    5
-#define PAL_SKY   164
-
-
-//#include "raycastlib_gba.h"
- 
-// ---------------------------------------------------------------------------
-// Level map
-// ---------------------------------------------------------------------------
-#define LEVEL_W 20
-#define LEVEL_H 15
 
  
 u8 my_color = 0;
-
-
 
 // ---------------------------------------------------------------------------
 // raycastlib callbacks
@@ -114,7 +41,6 @@ static u16 *drawBuf;
 //   bits 8-15 → right pixel (odd  x)
 //
 // We do a read-modify-write so we never corrupt the neighbouring pixel.
-
 IWRAM_CODE 
 static inline 
 void 
@@ -135,15 +61,15 @@ IWRAM_CODE
 static inline 
 u8
 sampleTexture(
-  const unsigned char *tex,
-  YAGBAR_Unit             tx, 
-  YAGBAR_Unit             ty
+    const unsigned char *tex,
+    YAGBAR_Unit             tx, 
+    YAGBAR_Unit             ty
 )
 {
     const u8 w = 64;
     const u8 h = 64;
-    tx = MATH_wrap(tx, RCL_UNITS_PER_SQUARE);
-    ty = MATH_wrap(ty, RCL_UNITS_PER_SQUARE);
+    tx = MATH_wrap(tx, YAGBAR_UNITS_PER_SQUARE);
+    ty = MATH_wrap(ty, YAGBAR_UNITS_PER_SQUARE);
     register s16 px = (w * tx) >> 10;
     register s16 py = (h * ty) >> 10;
     return tex[2 + h * px + py];
@@ -189,6 +115,20 @@ flatColumnFunc(
     }
 }
 
+void initEntities(void)
+{
+    YAGBAR_entityCount = 2;
+
+    YAGBAR_entities[0].position.x = 3 * YAGBAR_UNITS_PER_SQUARE;
+    YAGBAR_entities[0].position.y = 3 * YAGBAR_UNITS_PER_SQUARE;
+    YAGBAR_entities[0].sprite_index = 0;
+    YAGBAR_entities[0].flags = 0;
+
+    YAGBAR_entities[1].position.x = 5 * YAGBAR_UNITS_PER_SQUARE;
+    YAGBAR_entities[1].position.y = 5 * YAGBAR_UNITS_PER_SQUARE;
+    YAGBAR_entities[1].sprite_index = 1;
+    YAGBAR_entities[1].flags = 0;
+}
  
 // ---------------------------------------------------------------------------
 // Palette setup
@@ -279,23 +219,23 @@ handleInput(YAGBAR_Camera *cam)
  
     // Strafe (shoulder buttons)
     if (key_is_down(KEY_LEFT)) {
-        dy =  MATH_cos(cam->angle) / (RCL_UNITS_PER_SQUARE / MOVE_SPEED);
-        dx =  MATH_sin(cam->angle) / (RCL_UNITS_PER_SQUARE / MOVE_SPEED);
+        dy =  MATH_cos(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
+        dx =  MATH_sin(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
     }
     if (key_is_down(KEY_RIGHT)) {
         // Strafe right: rotate movement vector 90 degrees
-        dy = -MATH_cos(cam->angle) / (RCL_UNITS_PER_SQUARE / MOVE_SPEED);
-        dx = -MATH_sin(cam->angle) / (RCL_UNITS_PER_SQUARE / MOVE_SPEED);
+        dy = -MATH_cos(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
+        dx = -MATH_sin(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
     }
  
     // Forward / backward
     if (key_is_down(KEY_DOWN)) {
-        dy =  MATH_sin(cam->angle) / (RCL_UNITS_PER_SQUARE / MOVE_SPEED);
-        dx = -MATH_cos(cam->angle) / (RCL_UNITS_PER_SQUARE / MOVE_SPEED);
+        dy =  MATH_sin(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
+        dx = -MATH_cos(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
     }
     if (key_is_down(KEY_UP)) {
-        dy = -MATH_sin(cam->angle) / (RCL_UNITS_PER_SQUARE / MOVE_SPEED);
-        dx =  MATH_cos(cam->angle) / (RCL_UNITS_PER_SQUARE / MOVE_SPEED);
+        dy = -MATH_sin(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
+        dx =  MATH_cos(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
     }
  
     // Turn
@@ -311,10 +251,10 @@ handleInput(YAGBAR_Camera *cam)
     // Collision check: only move if destination square is open
     if (dx || dy)
     {
-        int nx = MATH_divRoundDown(cam->position.x + dx, RCL_UNITS_PER_SQUARE);
-        int ny = MATH_divRoundDown(cam->position.y + dy, RCL_UNITS_PER_SQUARE);
-        int cx = MATH_divRoundDown(cam->position.x,       RCL_UNITS_PER_SQUARE);
-        int cy = MATH_divRoundDown(cam->position.y,       RCL_UNITS_PER_SQUARE);
+        int nx = MATH_divRoundDown(cam->position.x + dx, YAGBAR_UNITS_PER_SQUARE);
+        int ny = MATH_divRoundDown(cam->position.y + dy, YAGBAR_UNITS_PER_SQUARE);
+        int cx = MATH_divRoundDown(cam->position.x,       YAGBAR_UNITS_PER_SQUARE);
+        int cy = MATH_divRoundDown(cam->position.y,       YAGBAR_UNITS_PER_SQUARE);
  
         // Allow sliding: try combined move first, then each axis separately
         if (YAGBAR_heightAt(nx, ny) == 0) {
@@ -329,7 +269,7 @@ handleInput(YAGBAR_Camera *cam)
         }
     }
 }
- 
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -354,8 +294,8 @@ main(void)
     // Camera initial state
     YAGBAR_Camera camera;
     YAGBAR_initCamera(&camera);
-    camera.position.x   = 2 * RCL_UNITS_PER_SQUARE + (RCL_UNITS_PER_SQUARE >> 1);
-    camera.position.y   = 2 * RCL_UNITS_PER_SQUARE + (RCL_UNITS_PER_SQUARE >> 1);
+    camera.position.x   = 2 * YAGBAR_UNITS_PER_SQUARE + (YAGBAR_UNITS_PER_SQUARE >> 1);
+    camera.position.y   = 2 * YAGBAR_UNITS_PER_SQUARE + (YAGBAR_UNITS_PER_SQUARE >> 1);
     camera.angle        = 0;
     camera.resolution.x = RENDER_W;
     camera.resolution.y = SCREEN_H;
@@ -374,6 +314,7 @@ main(void)
     int page = 0;
     u32 frame = 0;
 */
+    initEntities();
 #if DEBUG_PROFILE
     profile_start();
 #endif /* DEBUG_PROFILE */

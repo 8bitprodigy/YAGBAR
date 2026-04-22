@@ -1,5 +1,5 @@
-#ifndef YAGBAR_MATH_H
-#define YAGBAR_MATH_H
+#ifndef YGR_MATH_H
+#define YGR_MATH_H
 
 
 #include <tonc.h>
@@ -31,20 +31,20 @@
 /*******************************************************************************
     MACROS
 *******************************************************************************/
-#define MATH_min(a,b)        ((a) < (b) ? (a) : (b))
-#define MATH_max(a,b)        ((a) > (b) ? (a) : (b))
+#define MATH_min(a,b)        ((b) + (((a)-(b)) & (((a)-(b)) >> 31)))
+#define MATH_max(a,b)        ((a) - (((a)-(b)) & (((a)-(b)) >> 31)))
 #define MATH_nonZero(v)      ((v) + ((v) == 0)) ///< To prevent zero divisions.
 #define MATH_zeroClamp(x)    ((x) * ((x) >= 0))
 #define MATH_likely(cond)    __builtin_expect(!!(cond),1) 
 #define MATH_unlikely(cond)  __builtin_expect(!!(cond),0) 
 
 // Bhaskara's cosine approximation formula
-#define trigHelper(x) (((YAGBAR_Unit) YAGBAR_UNITS_PER_SQUARE) *\
-    ((YAGBAR_UNITS_PER_SQUARE >> 1) * (YAGBAR_UNITS_PER_SQUARE >> 1) - 4 * (x) * (x)) /\
-    ((YAGBAR_UNITS_PER_SQUARE >> 1) * (YAGBAR_UNITS_PER_SQUARE >> 1) + (x) * (x)))
+#define trigHelper(x) (((YGR_Unit) YGR_UNITS_PER_SQUARE) *\
+    ((YGR_UNITS_PER_SQUARE >> 1) * (YGR_UNITS_PER_SQUARE >> 1) - 4 * (x) * (x)) /\
+    ((YGR_UNITS_PER_SQUARE >> 1) * (YGR_UNITS_PER_SQUARE >> 1) + (x) * (x)))
 
 
-#ifdef YAGBAR_DEBUG_MATH
+#ifdef YGR_DEBUG_MATH
     /* NOTE: Update with mGBA debug commands in place of `printf`
     #define MATH_logV2D(v)\
         printf("[%d,%d]\n",v.x,v.y);
@@ -89,13 +89,13 @@
         printf("  resolution: %d x %d\n",c.resolution.x,c.resolution.y);\
         }
     */
-#endif /* YAGBAR_DEBUG_MATH */
+#endif /* YGR_DEBUG_MATH */
 
 /*******************************************************************************
     GLOBALS
 *******************************************************************************/
 #if MATH_USE_COS_LUT != 0
-extern const YAGBAR_Unit cosLUT[];
+extern const YGR_Unit cosLUT[];
 #endif /* MATH_USE_COS_LUT */
 
 
@@ -104,18 +104,18 @@ extern const YAGBAR_Unit cosLUT[];
 *******************************************************************************/
 IWRAM_CODE
 static inline
-YAGBAR_Unit
-MATH_fast_div(YAGBAR_Unit numerator, YAGBAR_Unit denominator)
+YGR_Unit
+MATH_fast_div(YGR_Unit numerator, YGR_Unit denominator)
 {
     if ((u32)denominator < DEPTH_RECIPROCAL_SIZE)
-        return (YAGBAR_Unit)(((int64_t)numerator * depth_reciprocal[denominator]) >> 10);
+        return (YGR_Unit)(((s32)numerator * depth_reciprocal[denominator]) >> 10);
     return numerator / denominator;
 }
 
 IWRAM_CODE
 static inline
-YAGBAR_Unit
-MATH_fast_mod(YAGBAR_Unit numerator, YAGBAR_Unit modulus)
+YGR_Unit
+MATH_fast_mod(YGR_Unit numerator, YGR_Unit modulus)
 {
     if ((u32)modulus < DEPTH_RECIPROCAL_SIZE) {
         register s32 prod = MATH_fast_div(numerator, modulus);
@@ -127,62 +127,61 @@ MATH_fast_mod(YAGBAR_Unit numerator, YAGBAR_Unit modulus)
 /// Like mod, but behaves differently for negative values.
 IWRAM_CODE 
 static inline 
-YAGBAR_Unit 
-MATH_wrap(YAGBAR_Unit value, YAGBAR_Unit mod)
+YGR_Unit 
+MATH_wrap(YGR_Unit value, YGR_Unit mod)
 {
-    YAGBAR_Unit cmp = value < 0;
+    YGR_Unit cmp = value < 0;
     return cmp * mod + MATH_fast_mod(value, mod) - cmp;
 }
 
 IWRAM_CODE 
 static inline
-YAGBAR_Unit 
-MATH_clamp(YAGBAR_Unit value, YAGBAR_Unit valueMin, YAGBAR_Unit valueMax)
+YGR_Unit 
+MATH_clamp(YGR_Unit value, YGR_Unit valueMin, YGR_Unit valueMax)
 {
-    if (value >= valueMin)
-    {
-        if (value <= valueMax)
-            return value;
-        else
-            return valueMax;
-    }
-    else
-        return valueMin;
+    return (value < valueMin) 
+            * valueMin 
+            + (
+                    value >= valueMin 
+                    && value <= valueMax
+                ) 
+            * value 
+            + (value > valueMax) 
+            * valueMax;
 }
 
 /// Performs division, rounding down, NOT towards zero.
 IWRAM_CODE 
 static inline 
-YAGBAR_Unit 
-MATH_divRoundDown(YAGBAR_Unit value, YAGBAR_Unit divisor)
+YGR_Unit 
+MATH_divRoundDown(YGR_Unit value, YGR_Unit divisor)
 {
     return MATH_fast_div(value, divisor) - ((value >= 0) ? 0 : 1);
 }
 
 IWRAM_CODE 
 static inline 
-YAGBAR_Unit 
-MATH_abs(YAGBAR_Unit value)
+YGR_Unit 
+MATH_abs(YGR_Unit value)
 {
     return value * (((value >= 0) << 1) - 1);
 }
-
-inline 
-YAGBAR_Vec2 
-MATH_angleToDirection(YAGBAR_Unit angle);
+ 
+YGR_Vec2 
+MATH_angleToDirection(YGR_Unit angle);
 
 /*  Cos function.
 
-    @param  input to cos in YAGBAR_Units (YAGBAR_UNITS_PER_SQUARE = 2 * pi = 360 degrees)
-    @return MATH_normalized output in YAGBAR_Units (from -YAGBAR_UNITS_PER_SQUARE to
-        YAGBAR_UNITS_PER_SQUARE)
+    @param  input to cos in YGR_Units (YGR_UNITS_PER_SQUARE = 2 * pi = 360 degrees)
+    @return MATH_normalized output in YGR_Units (from -YGR_UNITS_PER_SQUARE to
+        YGR_UNITS_PER_SQUARE)
 */
 IWRAM_CODE
 static inline
-YAGBAR_Unit 
-MATH_cos(YAGBAR_Unit input)
+YGR_Unit 
+MATH_cos(YGR_Unit input)
 {
-    input = MATH_wrap(input,YAGBAR_UNITS_PER_SQUARE);
+    input = MATH_wrap(input,YGR_UNITS_PER_SQUARE);
 
 #if MATH_USE_COS_LUT == 1
 
@@ -195,83 +194,106 @@ MATH_cos(YAGBAR_Unit input)
 #elif MATH_USE_COS_LUT == 2
     return cosLUT[input >> 3];
 #else
-    if (input < YAGBAR_UNITS_PER_SQUARE >> 2)
+    if (input < YGR_UNITS_PER_SQUARE >> 2)
         return trigHelper(input);
-    else if (input < YAGBAR_UNITS_PER_SQUARE >> 1)
-        return -1 * trigHelper((YAGBAR_UNITS_PER_SQUARE >> 1) - input);
-    else if (input < 3 * YAGBAR_UNITS_PER_SQUARE >> 2)
-        return -1 * trigHelper(input - (YAGBAR_UNITS_PER_SQUARE >> 1));
+    else if (input < YGR_UNITS_PER_SQUARE >> 1)
+        return -1 * trigHelper((YGR_UNITS_PER_SQUARE >> 1) - input);
+    else if (input < 3 * YGR_UNITS_PER_SQUARE >> 2)
+        return -1 * trigHelper(input - (YGR_UNITS_PER_SQUARE >> 1));
     else
-        return trigHelper(YAGBAR_UNITS_PER_SQUARE - input);
+        return trigHelper(YGR_UNITS_PER_SQUARE - input);
 #endif
 }
 
 #undef trigHelper
 IWRAM_CODE 
 static inline
-YAGBAR_Unit 
-MATH_sin(YAGBAR_Unit input)
+YGR_Unit 
+MATH_sin(YGR_Unit input)
 {
-    return MATH_cos(input - (YAGBAR_UNITS_PER_SQUARE >> 2));
+    return MATH_cos(input - (YGR_UNITS_PER_SQUARE >> 2));
 }
 
-inline
-YAGBAR_Unit 
-MATH_tan(YAGBAR_Unit input);
-inline
-YAGBAR_Unit 
-MATH_ctg(YAGBAR_Unit input);
 
-/// Normalizes given vector to have YAGBAR_UNITS_PER_SQUARE length.
-inline
-YAGBAR_Vec2 
-MATH_normalize(YAGBAR_Vec2 v);
+YGR_Unit 
+MATH_tan(YGR_Unit input);
 
-/// Computes a cos of an angle between two vectors.
-inline
-YAGBAR_Unit 
-MATH_vectorsAngleCos(YAGBAR_Vec2 v1, YAGBAR_Vec2 v2);
+YGR_Unit 
+MATH_ctg(YGR_Unit input);
 
-inline
+
 uint16_t 
-MATH_sqrt(YAGBAR_Unit value);
-inline
-YAGBAR_Unit 
-MATH_dist(YAGBAR_Vec2 p1, YAGBAR_Vec2 p2);
+MATH_sqrt(YGR_Unit value);
+
+YGR_Unit 
+MATH_dist(YGR_Vec2 p1, YGR_Vec2 p2);
 
 IWRAM_CODE
 static inline
-YAGBAR_Unit 
-MATH_len(YAGBAR_Vec2 v)
+YGR_Unit 
+MATH_len(YGR_Vec2 v)
 {
-    YAGBAR_Vec2 zero;
+    YGR_Vec2 zero;
     zero.x = 0;
     zero.y = 0;
 
     return MATH_dist(zero,v);
 }
 
-inline
-YAGBAR_Unit 
-MATH_clamp(YAGBAR_Unit value, YAGBAR_Unit valueMin, YAGBAR_Unit valueMax);
 
-/*  Converts an angle in whole degrees to an angle in YAGBAR_Units that this 
+/// Normalizes given vector to have YGR_UNITS_PER_SQUARE length.
+IWRAM_CODE 
+static inline
+YGR_Vec2 
+MATH_normalize(YGR_Vec2 v)
+{
+    YGR_Vec2 result;
+    YGR_Unit l = MATH_len(v);
+    l = MATH_nonZero(l);
+
+    result.x = MATH_fast_div((v.x * YGR_UNITS_PER_SQUARE), l);
+    result.y = MATH_fast_div((v.y * YGR_UNITS_PER_SQUARE), l);
+
+    return result;
+}
+
+/// Computes a cos of an angle between two vectors.
+IWRAM_CODE 
+static inline
+YGR_Unit 
+MATH_vectorsAngleCos(YGR_Vec2 v1, YGR_Vec2 v2)
+{
+    v1 = MATH_normalize(v1);
+    v2 = MATH_normalize(v2);
+
+    return MATH_fast_div((v1.x * v2.x + v1.y * v2.y), YGR_UNITS_PER_SQUARE);
+}
+
+inline
+YGR_Unit 
+MATH_clamp(YGR_Unit value, YGR_Unit valueMin, YGR_Unit valueMax);
+
+/*  Converts an angle in whole degrees to an angle in YGR_Units that this 
     engine uses.
 */   
-inline
-YAGBAR_Unit 
-MATH_degreesToUnitsAngle(int16_t degrees);
+IWRAM_CODE 
+static inline
+YGR_Unit 
+MATH_degreesToUnitsAngle(int16_t degrees)
+{
+    return MATH_fast_div((degrees * YGR_UNITS_PER_SQUARE), 360);
+}
 
 IWRAM_CODE
 static inline 
 int8_t 
-MATH_pointIsLeftOfRay(YAGBAR_Vec2 point, YAGBAR_Ray ray)
+MATH_pointIsLeftOfRay(YGR_Vec2 point, YGR_Ray ray)
 {
-    YAGBAR_Unit dX = point.x - ray.start.x;
-    YAGBAR_Unit dY = point.y - ray.start.y;
+    YGR_Unit dX = point.x - ray.start.x;
+    YGR_Unit dY = point.y - ray.start.y;
     return (ray.direction.x * dY - ray.direction.y * dX) > 0;
         /* ^ Z component of cross-product */
 }
 
 
-#endif /* YAGBAR_MATH_H */
+#endif /* YGR_MATH_H */

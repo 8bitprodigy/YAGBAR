@@ -1,5 +1,7 @@
+#include "core.h"
 #include "data.h"
 #include "math.h"
+#include "mgba.h"
 #include "render.h"
 
 #include "reciprocal_table.h"
@@ -8,55 +10,98 @@
 #define _RENDER_UNUSED(what) (void)(what);
 
 
+IWRAM_CODE static inline void RENDER_PIXEL_FUNCTION(RENDER_PixelInfo *pixel);
+#ifdef RENDER_COLUMN_FUNCTION
+IWRAM_CODE static inline void RENDER_COLUMN_FUNCTION(
+    YGR_Unit x, 
+    YGR_Unit y_start, 
+    YGR_Unit y_end, 
+    u8          is_floor
+);
+#endif /* RENDER_COLUMN_FUNCTION */
+IWRAM_CODE YGR_Unit RENDER_RS_HEIGHT_FN(s16 x, s16 y);
+
+
 /*******************************************************************************
 	Global helper variables, for precomputing stuff etc.
 *******************************************************************************/
 static u8                    _RENDER_visibleSprites[RENDER_NUM_VISIBLE_SPRITES];
-static YAGBAR_Unit           _RENDER_spriteDist[RENDER_NUM_VISIBLE_SPRITES];
+static YGR_Unit              _RENDER_spriteDist[RENDER_NUM_VISIBLE_SPRITES];
 static u8                    _RENDER_spriteCount;
-static YAGBAR_Unit           _RENDER_depthBuf[RENDER_W]      = {0};
-static YAGBAR_Camera         _RENDER_camera;
-static YAGBAR_Unit           _RENDER_horizontalDepthStep     = 0; 
-static YAGBAR_Unit           _RENDER_startFloorHeight        = 0;
-static YAGBAR_Unit           _RENDER_startCeil_Height        = 0;
-static YAGBAR_Unit           _RENDER_camResYLimit            = 0;
-static YAGBAR_Unit           _RENDER_middleRow               = 0;
+static YGR_Unit              _RENDER_depthBuf[2][RENDER_W]   = {0};
+static u8                    _RENDER_wallTopBuf[2][RENDER_W] = {0};
+static u8                    _RENDER_wallBotBuf[2][RENDER_W] = {0};
+static YGR_Camera           *_RENDER_camera;
+static YGR_Unit              _RENDER_horizontalDepthStep     = 0; 
+static YGR_Unit              _RENDER_startFloorHeight        = 0;
+static YGR_Unit              _RENDER_startCeil_Height        = 0;
+static YGR_Unit              _RENDER_camResYLimit            = 0;
+static YGR_Unit              _RENDER_middleRow               = 0;
 static RENDER_ArrayFunction  _RENDER_floorFunction           = 0;
 static RENDER_ArrayFunction  _RENDER_ceilFunction            = 0;
-static YAGBAR_Unit           _RENDER_fHorizontalDepthStart   = 0;
-static YAGBAR_Unit           _RENDER_cHorizontalDepthStart   = 0;
+static YGR_Unit              _RENDER_fHorizontalDepthStart   = 0;
+static YGR_Unit              _RENDER_cHorizontalDepthStart   = 0;
 static s16                   _RENDER_cameraHeightScreen      = 0;
 static RENDER_ArrayFunction  _RENDER_rollFunction            = 0; // says door rolling
-static YAGBAR_Unit          *_RENDER_floorPixelDistances     = 0;
-static YAGBAR_Unit           _RENDER_fovCorrectionFactors[2] = {0,0}; //correction for hor/vert fov
-static YAGBAR_Unit           _RENDER_fovScale                = 0;
+static YGR_Unit             *_RENDER_floorPixelDistances     = 0;
+static YGR_Unit              _RENDER_fovCorrectionFactors[2] = {0,0}; //correction for hor/vert fov
+static YGR_Unit              _RENDER_fovScale                = 0;
 static u32                   _RENDER_frame                   = 0;
 static u16                  *_RENDER_drawBuf;
 static u8                    _RENDER_page                    = 0;
 
 
 static inline 
-YAGBAR_Unit 
-_RENDER_fovCorrectionFactor(YAGBAR_Unit fov);
+YGR_Unit 
+_RENDER_fovCorrectionFactor(YGR_Unit fov);
 
 
 /*******************************************************************************
     PRIVATE FUNCTIONS
 *******************************************************************************/
+__attribute__((constructor))
+static void
+RENDER_init(void)
+{
+#ifdef DEBUG
+    while (!mgba_open()) {
+        /* Hang on failure */
+    };
+#endif /* DEBUG */
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < RENDER_W; j++) {
+            _RENDER_depthBuf[i][j]   = YGR_INFINITY;
+            _RENDER_wallTopBuf[i][j] = 0;
+            _RENDER_wallBotBuf[i][j] = SCREEN_H+1;
+        }
+    }
+}
+
 IWRAM_CODE
 static inline
-void
-sortSprites(YAGBAR_Camera *cam)
+YGR_Unit 
+heightAt(s16 x, s16 y)
 {
-    YAGBAR_Vec2 cam_dir = MATH_angleToDirection(cam->angle);
+    YGR_Unit index = y * LEVEL_W + x;
+    if (index < 0 || index >= LEVEL_W * LEVEL_H)
+        return YGR_UNITS_PER_SQUARE * 2;   // treat out-of-bounds as wall
+    return level[index] * YGR_UNITS_PER_SQUARE * 2;
+}
+
+IWRAM_CODE
+static inline void
+sortSprites()
+{
+    YGR_Vec2 cam_pos = _RENDER_camera->position;
+    YGR_Vec2 cam_dir = MATH_angleToDirection(_RENDER_camera->angle);
     _RENDER_spriteCount = 0;
     /* Cull and compute distances */
-    for (u8 i = 0; i < YAGBAR_entityCount; i++) {
-        YAGBAR_Entity *ent = &YAGBAR_entities[i];
+    for (u8 i = 0; i < YGR_entityCount; i++) {
+        YGR_Entity *ent = &YGR_entities[i];
 
-        YAGBAR_Unit
-            dx = ent->position.x - cam->position.x,
-            dy = ent->position.y - cam->position.y;
+        YGR_Unit
+            dx = ent->position.x - cam_pos.x,
+            dy = ent->position.y - cam_pos.y;
 
             /* Cull if behind camera */
             if ((dx * cam_dir.x + dy * cam_dir.y) <= 0) continue;
@@ -71,7 +116,7 @@ sortSprites(YAGBAR_Camera *cam)
     /* Insertion sort furthest first */
     for (u8 i = 0; i < _RENDER_spriteCount; i++) {
         u8          key      = _RENDER_visibleSprites[i];
-        YAGBAR_Unit key_dist = _RENDER_spriteDist[i];
+        YGR_Unit key_dist = _RENDER_spriteDist[i];
         s8 j = i - 1;
         while (j >= 0 && _RENDER_spriteDist[j] < key_dist) {
             _RENDER_visibleSprites[j + 1] = _RENDER_visibleSprites[j];
@@ -85,51 +130,52 @@ sortSprites(YAGBAR_Camera *cam)
 
 IWRAM_CODE
 static void
-drawSprites(YAGBAR_Camera *cam)
+drawSprites()
 {
-    sortSprites(cam);
+    sortSprites();
 
-    YAGBAR_Vec2 cam_dir = MATH_angleToDirection(cam->angle);
-    YAGBAR_Unit 
+    YGR_Vec2 cam_pos = _RENDER_camera->position;
+    YGR_Vec2 cam_res = _RENDER_camera->resolution;
+    YGR_Vec2 cam_dir = MATH_angleToDirection(_RENDER_camera->angle);
+    YGR_Unit 
         cam_right_x =  cam_dir.y,
         cam_right_y = -cam_dir.x;
 
     for (u8 si = 0; si < _RENDER_spriteCount; si++) {
-        YAGBAR_Entity *ent = &YAGBAR_entities[_RENDER_visibleSprites[si]];
+        YGR_Entity *ent = &YGR_entities[_RENDER_visibleSprites[si]];
 
         /* Transform into camera space */
-        YAGBAR_Unit 
-            rel_x = ent->position.x - cam->position.x,
-            rel_y = ent->position.y - cam->position.y,
+        YGR_Unit 
+            rel_x = ent->position.x - cam_pos.x,
+            rel_y = ent->position.y - cam_pos.y,
 
             depth  = (rel_x * cam_dir.x   + rel_y * cam_dir.y)   
-                    / YAGBAR_UNITS_PER_SQUARE,
+                    / YGR_UNITS_PER_SQUARE,
             strafe = (rel_x * cam_right_x + rel_y * cam_right_y) 
-                    / YAGBAR_UNITS_PER_SQUARE;
+                    / YGR_UNITS_PER_SQUARE;
 
         if (depth <= 0) continue;
 
-        const YAGBAR_Unit RW = cam->resolution.x;
-        const YAGBAR_Unit RH = cam->resolution.y;
+        const YGR_Unit RW = cam_res.x;
+        const YGR_Unit RH = cam_res.y;
         /* Screen X center */
-        YAGBAR_Unit fov_depth = MATH_fast_div(depth * RENDER_HORIZONTAL_FOV_TAN, YAGBAR_UNITS_PER_SQUARE);
-        int screen_x = RENDER_W / 2
-            + (int)MATH_fast_div(strafe * (RENDER_W >> 1), fov_depth);
+        s16 screen_x = (RENDER_W >> 1)
+            + MATH_fast_div(strafe * (RENDER_W >> 1), depth);
 
         /* Screen height */
-        int sprite_h = (int)RENDER_perspectiveScaleVertical(RH, depth);
+        s16 sprite_h = (s16)RENDER_perspectiveScaleVertical(RH, depth);
         if (sprite_h <= 0) continue;
 
-        int
-            sprite_w = MATH_fast_div((sprite_h * RW), RH),
+        s16
+            sprite_w = (s16)MATH_fast_div((sprite_h * RW), RH),
 
             draw_x0 = screen_x          - (sprite_w >> 1),
             draw_x1 = screen_x          + (sprite_w >> 1);
-        YAGBAR_Unit world_offset = YAGBAR_UNITS_PER_SQUARE - cam->height;
-        int 
+        YGR_Unit world_offset = ent->z - _RENDER_camera->height;
+        s16 
             screen_center_y = _RENDER_middleRow 
-                    - (int)RENDER_perspectiveScaleVertical(world_offset, depth) 
-                    * RH / YAGBAR_UNITS_PER_SQUARE,
+                    - (s16)RENDER_perspectiveScaleVertical(world_offset, depth) 
+                    * RH / YGR_UNITS_PER_SQUARE,
 
             draw_y0 = screen_center_y - (sprite_h >> 1),
             draw_y1 = screen_center_y + (sprite_h >> 1);
@@ -140,12 +186,12 @@ drawSprites(YAGBAR_Camera *cam)
             spr_h = tex[1];
         const u8 *texture = tex + 2;
 
-        int sx0 = -1, sx1 = -1;
-        int cur0 = -1, cur1 = -1;
+        s16 sx0 = -1, sx1 = -1;
+        s16 cur0 = -1, cur1 = -1;
 
-        for (int sx = draw_x0; sx < draw_x1; sx++) {
+        for (s16 sx = draw_x0; sx < draw_x1; sx++) {
             if (sx < 0 || sx >= RW) continue;
-            if (depth < _RENDER_depthBuf[sx]) {
+            if (depth < _RENDER_depthBuf[_RENDER_page][sx]) {
                 if (cur0 == -1) cur0 = sx;
                 cur1 = sx;
             } else {
@@ -180,27 +226,88 @@ drawSprites(YAGBAR_Camera *cam)
 
         /* draw horizontally row by row */
         u8 shade = (u8)(depth >> DEPTH_SHIFT_AMOUNT);
+        s16 texel_w = MATH_fast_div(sprite_w, spr_w);
+        register s32 rcp_h = (sprite_h < DEPTH_RECIPROCAL_SIZE) ? depth_reciprocal[sprite_h] : 0;
+        register s32 rcp_w = (sprite_w < DEPTH_RECIPROCAL_SIZE) ? depth_reciprocal[sprite_w] : 0;
+        
+        if (texel_w <= 1) {
+            /* When the sprite texel width is 1 pixel or less */
+            for (u8 sy = draw_y0; sy < draw_y1; sy++) {
+                if (sy < 0 || sy >= RH) continue;
 
-        for (int sy = draw_y0; sy < draw_y1; sy++) {
-            if (sy < 0 || sy >= RH) continue;
+                u8 ty = (u8)(((s32)(sy - draw_y0) * spr_h * rcp_h) >> 10);
 
-            int ty = ((sy - draw_y0) * spr_h) / sprite_h;
-
-            for (int sx = sx0; sx <= sx1; sx++) {
-                int tx   = ((sx - draw_x0) * spr_w) / sprite_w;
-                u8 color = texture[ty * spr_w + tx];
-                if (color == RENDER_PAL_TRANSPARENT) continue;
-
-                register u8  base       = color & 0xF0;
-                register s16 shaded     = (s16)color - (s16)shade;
-                shaded                 &= ~(shaded >> 15);
-                register s16 below_base = shaded - (s16)base;
-                shaded                 &= ~(below_base >> 15);
-                color                   = (u8)shaded;
-
-                u16 *addr = _RENDER_drawBuf + ((sy * (SCREEN_W >> 1)) + sx);
-                *addr     = color | (color << 8);
+                for (u8 sx = sx0; sx <= sx1; sx++) {
+                    u8 tx = (u8)(((s32)(sx - draw_x0) * spr_w * rcp_w) >> 10);
+                    u8 color = texture[ty * spr_w + tx];
+                    if (color == RENDER_PAL_TRANSPARENT) continue;
+#if DEPTH_SHADE_SPRITES
+                    register u8  base       = color & 0xF0;
+                    register s16 shaded     = (s16)color - (s16)shade;
+                    shaded                 &= ~(shaded >> 15);
+                    register s16 below_base = shaded - (s16)base;
+                    shaded                 &= ~(below_base >> 15);
+                    color                   = (u8)shaded;
+#endif /* DEPTH_SHADE_SPRITES */
+                    register u16 *addr = _RENDER_drawBuf + ((sy * (SCREEN_W >> 1)) + sx);
+                    *addr     = color | (color << 8);
+                }
             }
+        }
+        else {
+            /* When the sprite is magnified */
+            for (s16 sy = draw_y0; sy < draw_y1; sy++) {
+                if (sy < 0 || sy >= RH) continue;
+                u8 ty = (u8)(((s32)(sy - draw_y0) * spr_h * rcp_h) >> 10);
+                s16 sx = sx0;
+                DBG_OUT("sx0: %d sx1: %d texel_w: %d sprite_w: %d spr_w: %d", sx0, sx1, texel_w, sprite_w, spr_w);
+                register u16 *drawAddr = _RENDER_drawBuf + (sy * (SCREEN_W >> 1));
+                while (sx <= sx1) {
+                    u8 
+                        tx = (u8)(((s32)(sx - draw_x0) * spr_w * rcp_w) >> 10),
+                        color   = texture[ty * spr_w + tx];
+                    s16 run_end = sx + texel_w;
+                    if (color != RENDER_PAL_TRANSPARENT) {
+                        register u16 word  = color | (color << 8);
+                        register u16 *addr = drawAddr + sx;
+                        register u16 *end  = addr + (run_end - sx);
+                        while (addr < end)
+                            *addr++ = word;
+                    }
+/*
+                    s16 run_end = sx + 1;
+                    while (run_end < sx1) {
+                        s8 next_tx = MATH_fast_div(
+                                ((run_end - draw_x0) * spr_w), 
+                                sprite_w
+                            );
+                        if (texture[ty * spr_w + next_tx] != color) break;
+                        run_end++;
+                    }
+
+                    if (color != RENDER_PAL_TRANSPARENT) {
+                        register u8  base        = color & 0xF0;
+                        register u16 shaded      = (s16)color - (s16)shade;
+                        shaded                  &= ~(shaded >> 15);
+                        register s16 below_base  = shaded - (s16)base;
+                        shaded                  &= ~(below_base >> 15);
+                        color                    = (u8)shaded;
+                        u16 word = color | (color << 8);
+                        u16 *addr = _RENDER_drawBuf + (sy * (SCREEN_W >> 1)) + sx;
+                        u16 *end  = addr + (run_end - sx);
+                        while (addr < end)
+                            *addr++ = word;
+                    }
+//*/
+                    sx = run_end;
+                }
+            }
+        }
+        draw_y0 = MATH_clamp(draw_y0, 0, SCREEN_H);
+        draw_y1 = MATH_clamp(draw_y1, 0, SCREEN_H);
+        for (u8 sx = sx0; sx <= sx1; sx++) {
+            _RENDER_wallTopBuf[_RENDER_page][sx] = draw_y0;
+            _RENDER_wallBotBuf[_RENDER_page][sx] = draw_y1;
         }
     }
 }
@@ -210,14 +317,14 @@ IWRAM_CODE
 static inline u8
 sampleTexture(
   const u8    *tex,
-  YAGBAR_Unit  tx, 
-  YAGBAR_Unit  ty
+  YGR_Unit  tx, 
+  YGR_Unit  ty
 )
 {
     const u8 w = 64;
     const u8 h = 64;
-    tx = MATH_wrap(tx, YAGBAR_UNITS_PER_SQUARE);
-    ty = MATH_wrap(ty, YAGBAR_UNITS_PER_SQUARE);
+    tx = MATH_wrap(tx, YGR_UNITS_PER_SQUARE);
+    ty = MATH_wrap(ty, YGR_UNITS_PER_SQUARE);
     register s16 px = (w * tx) >> 10;
     register s16 py = (h * ty) >> 10;
     return tex[2 + h * px + py];
@@ -243,7 +350,7 @@ pixelFunc(RENDER_PixelInfo *p)
 #if !WALLS_TEXTURED    
         // Shade walls by depth and face direction.
         // depth is in RCL units; clamp to 3 shading levels.
-        color = PAL_WALL;//3 - RCL_min(3, (int)(p->depth / YAGBAR_UNITS_PER_SQUARE));
+        color = PAL_WALL;//3 - RCL_min(3, (int)(p->depth / YGR_UNITS_PER_SQUARE));
 #else
         color = sampleTexture(wall_tex, p->texCoords.x, p->texCoords.y);
 #endif /* WALLS_UNTEXTURED */
@@ -283,7 +390,7 @@ pixelFunc(RENDER_PixelInfo *p)
         color = PAL_FLOOR;
     #endif /* TEXTURED_FLOORS */
     #if DEPTH_SHADE_FLOOR
-        /* +((YAGBAR_UNITS_PER_SQUARE>>4) * 18) */
+        /* +((YGR_UNITS_PER_SQUARE>>4) * 18) */
         shade = ((p->depth) >> (DEPTH_SHIFT_AMOUNT));
         /* Clamp color to within row */
         base        = color & 0xF0;
@@ -314,8 +421,8 @@ pixelFunc(RENDER_PixelInfo *p)
     }
 #endif /* RCL_COLUMN_FUNCTION */
 
-    u16 *addr = _RENDER_drawBuf + ((p->position.y * SCREEN_W + p->position.x * 2) >> 1);
-    *addr = (u16)color | ((u16)color << 8);
+    //u16 *addr = _RENDER_drawBuf + (u16)((p->position.y * SCREEN_W + p->position.x * 2) >> 1);
+    *p->destination = (u16)color | ((u16)color << 8);
 }
 
 
@@ -323,21 +430,21 @@ pixelFunc(RENDER_PixelInfo *p)
 /*  Helper function that determines intersection with both ceiling and floor. 
 */
 static inline
-YAGBAR_Unit 
+YGR_Unit 
 _RENDER_floorCeilFunction(s16 x, s16 y)
 {
-    YAGBAR_Unit f = _RENDER_floorFunction(x,y);
+    YGR_Unit f = _RENDER_floorFunction(x,y);
 
     if (_RENDER_ceilFunction == 0)
         return f;
 
-    YAGBAR_Unit c = _RENDER_ceilFunction(x,y);
+    YGR_Unit c = _RENDER_ceilFunction(x,y);
 
   return ((f & 0x00ff) << 8) | (c & 0x00ff);
 }
 
 static inline
-YAGBAR_Unit 
+YGR_Unit 
 _floorHeightNotZeroFunction(s16 x, s16 y)
 {
     return (RENDER_RS_HEIGHT_FN(x,y) == 0) 
@@ -350,33 +457,38 @@ _floorHeightNotZeroFunction(s16 x, s16 y)
 /* Helper for drawing floor or ceiling. Returns the last drawn pixel position. 
 */
 IWRAM_CODE
-inline 
+static 
 s16 
 _RENDER_drawHorizontalColumn(
-    YAGBAR_Unit    yCurrent,
-    YAGBAR_Unit    yTo,
-    YAGBAR_Unit    limit1, // TODO: s16?
-    YAGBAR_Unit    limit2,
-    YAGBAR_Unit    verticalOffset,
-    s16            increment,
-    s8             computeDepth,
-    s8             computeCoords,
-    s16            depthIncrementMultiplier,
-    YAGBAR_Ray    *ray,
+    YGR_Unit    yCurrent,
+    YGR_Unit    yTo,
+    YGR_Unit    limit1, // TODO: s16?
+    YGR_Unit    limit2,
+    YGR_Unit    verticalOffset,
+    s16         increment,
+    s8          computeDepth,
+    s8          computeCoords,
+    s16         depthIncrementMultiplier,
+    YGR_Ray    *ray,
     RENDER_PixelInfo *pixelInfo
 )
 {
     _RENDER_UNUSED(ray);
 
-    YAGBAR_Unit depthIncrement;
-    YAGBAR_Unit dx;
-    YAGBAR_Unit dy;
+    YGR_Vec2 cam_pos = _RENDER_camera->position;
+    YGR_Unit rowStep = increment * (SCREEN_W >> 1);
+    YGR_Unit depthIncrement;
+    YGR_Unit dx;
+    YGR_Unit dy;
+    YGR_Unit d2;
+    YGR_Unit rcp_d2;
+    
 
     pixelInfo->is_wall = 0;
 
-    s16 limit = MATH_clamp(yTo,limit1,limit2);
+    s16 limit  = MATH_clamp(yTo,limit1,limit2);
 
-    YAGBAR_Unit depth = 0; /* TODO: this is for clamping depth to 0 so that we don't
+    YGR_Unit depth = 0; /* TODO: this is for clamping depth to 0 so that we don't
                             have negative depths, but we should do it more
                             elegantly and efficiently */
 
@@ -393,30 +505,40 @@ _RENDER_drawHorizontalColumn(
                         _RENDER_horizontalDepthStep;\
             }\
             if (doCoords) { /*constant condition - compiler should optimize it out*/\
-                dx = pixelInfo->hit.position.x - _RENDER_camera.position.x;\
-                dy = pixelInfo->hit.position.y - _RENDER_camera.position.y;\
+                dx     = pixelInfo->hit.position.x - cam_pos.x;\
+                dy     = pixelInfo->hit.position.y - cam_pos.y;\
+                d2     = MATH_nonZero(pixelInfo->hit.distance);\
+                rcp_d2 = depth_reciprocal[MATH_min(d2, DEPTH_RECIPROCAL_SIZE - 1)]; \
             }\
-            for (s16 i = yCurrent + increment;\
+            pixelInfo->destination = _RENDER_drawBuf \
+                    + ((yCurrent + increment) \
+                            * (SCREEN_W >> 1) \
+                        ) \
+                    + pixelInfo->position.x; \
+            for ( \
+                s16 i = yCurrent + increment;\
                 increment == -1 ? i >= limit : i <= limit; /* TODO: is efficient? */\
-                i += increment)\
-            {\
-            pixelInfo->position.y = i;\
-            if (doDepth) { /*constant condition - compiler should optimize it out*/\
-                depth += depthIncrement;\
-                pixelInfo->depth = MATH_zeroClamp(depth); \
-                /* ^ int comparison is fast, it is not braching! (= test instr.) */\
+                i += increment \
+            ) {\
+                pixelInfo->position.y = i;\
+                if (doDepth) { /*constant condition - compiler should optimize it out*/\
+                    depth += depthIncrement;\
+                    pixelInfo->depth = MATH_zeroClamp(depth); \
+                    /* ^ int comparison is fast, it is not braching! (= test instr.) */\
+                }\
+                if (doCoords) { /*constant condition - compiler should optimize it out*/\
+                    YGR_Unit d = _RENDER_floorPixelDistances[i];\
+                    pixelInfo->texCoords.x =\
+                        cam_pos.x \
+                        + (((s32)(d * dx) * rcp_d2) >> 10); \
+                    pixelInfo->texCoords.y =\
+                        cam_pos.y \
+                        + (((s32)(d * dy) * rcp_d2) >> 10); \
+                }\
+                RENDER_PIXEL_FUNCTION(pixelInfo);\
+                pixelInfo->destination += rowStep; \
             }\
-            if (doCoords) { /*constant condition - compiler should optimize it out*/\
-                YAGBAR_Unit d = _RENDER_floorPixelDistances[i];\
-                YAGBAR_Unit d2 = MATH_nonZero(pixelInfo->hit.distance);\
-                pixelInfo->texCoords.x =\
-                _RENDER_camera.position.x +  MATH_fast_div((d * dx), d2);\
-                pixelInfo->texCoords.y =\
-                _RENDER_camera.position.y +  MATH_fast_div((d * dy), d2);\
-            }\
-            RENDER_PIXEL_FUNCTION(pixelInfo);\
-        }\
-    }
+        }
 
     if (computeDepth) // branch early
     {
@@ -439,17 +561,17 @@ _RENDER_drawHorizontalColumn(
 }
 
 
-/// Helper for drawing walls. Returns the last drawn pixel position.
+/* Helper for drawing walls. Returns the last drawn pixel position. */
 IWRAM_CODE
 static inline 
 s16 
 _RENDER_drawWall(
-    YAGBAR_Unit yCurrent,
-    YAGBAR_Unit yFrom,
-    YAGBAR_Unit yTo,
-    YAGBAR_Unit limit1, // TODO: s16?
-    YAGBAR_Unit limit2,
-    YAGBAR_Unit height,
+    YGR_Unit yCurrent,
+    YGR_Unit yFrom,
+    YGR_Unit yTo,
+    YGR_Unit limit1, // TODO: s16?
+    YGR_Unit limit2,
+    YGR_Unit height,
     s16 increment,
     RENDER_PixelInfo *pixelInfo
 )
@@ -460,18 +582,18 @@ _RENDER_drawWall(
 
     pixelInfo->is_wall = 1;
 
-    YAGBAR_Unit limit = MATH_clamp(yTo,limit1,limit2);
+    YGR_Unit limit = MATH_clamp(yTo,limit1,limit2);
 
-    YAGBAR_Unit wallLength = MATH_nonZero(MATH_abs(yTo - yFrom - 1));
+    YGR_Unit wallLength = MATH_nonZero(MATH_abs(yTo - yFrom - 1));
 
-    YAGBAR_Unit wallPosition = MATH_abs(yFrom - yCurrent) - increment;
+    YGR_Unit wallPosition = MATH_abs(yFrom - yCurrent) - increment;
 
-    YAGBAR_Unit heightScaled = height * RENDER_TEXTURE_INTERPOLATION_SCALE;
+    YGR_Unit heightScaled = height << RENDER_TEXTURE_INTERPOLATION_SHIFT;
     _RENDER_UNUSED(heightScaled);
 
-    YAGBAR_Unit coordStepScaled = RENDER_COMPUTE_WALL_TEXCOORDS ?
+    YGR_Unit coordStepScaled = RENDER_COMPUTE_WALL_TEXCOORDS ?
 #if RENDER_TEXTURE_VERTICAL_STRETCH == 1
-    ((RENDER_UNITS_PER_SQUARE * RENDER_TEXTURE_INTERPOLATION_SCALE) / wallLength)
+    ((RENDER_UNITS_PER_SQUARE << RENDER_TEXTURE_INTERPOLATION_SHIFT) / wallLength)
 #else
     (heightScaled / wallLength)
 #endif
@@ -485,7 +607,7 @@ _RENDER_drawWall(
         coordStepScaled *= -1;
         pixelInfo->texCoords.y =
 #if RENDER_TEXTURE_VERTICAL_STRETCH == 1
-        (RENDER_UNITS_PER_SQUARE * RENDER_TEXTURE_INTERPOLATION_SCALE)
+        (RENDER_UNITS_PER_SQUARE << RENDER_TEXTURE_INTERPOLATION_SHIFT)
         - pixelInfo->texCoords.y;
 #else
         heightScaled - pixelInfo->texCoords.y;
@@ -497,24 +619,27 @@ _RENDER_drawWall(
         pixelInfo->texCoords.y = MATH_zeroClamp(pixelInfo->texCoords.y);
     }
 
-    YAGBAR_Unit textureCoordScaled = pixelInfo->texCoords.y;
+    YGR_Unit textureCoordScaled = pixelInfo->texCoords.y;
+    YGR_Unit rowStep = increment * (SCREEN_W >> 1);
+    pixelInfo->destination = _RENDER_drawBuf
+            + ((yCurrent + increment) * (SCREEN_W >> 1))
+            + pixelInfo->position.x;
 
-    for (YAGBAR_Unit i = yCurrent + increment; 
+    for (
+        YGR_Unit i = yCurrent + increment; 
         increment == -1 ? i >= limit : i <= limit; // TODO: is efficient?
-        i += increment)
-    {
+        i += increment
+    ) {
         pixelInfo->position.y = i;
 
 #if RENDER_COMPUTE_WALL_TEXCOORDS == 1
-        pixelInfo->texCoords.y = MATH_fast_div(
-                textureCoordScaled,
-                RENDER_TEXTURE_INTERPOLATION_SCALE
-            );
+        pixelInfo->texCoords.y = textureCoordScaled >> RENDER_TEXTURE_INTERPOLATION_SHIFT;
 
         textureCoordScaled += coordStepScaled;
 #endif
 
         RENDER_PIXEL_FUNCTION(pixelInfo);
+        pixelInfo->destination += rowStep;
     }
 
     return limit;
@@ -524,11 +649,11 @@ _RENDER_drawWall(
 IWRAM_CODE
 static inline 
 void 
-_RENDER_makeInfiniteHit(RENDER_HitResult *hit, YAGBAR_Ray *ray)
+_RENDER_makeInfiniteHit(RENDER_HitResult *hit, YGR_Ray *ray)
 {
     hit->distance = RENDER_UNITS_PER_SQUARE * RENDER_UNITS_PER_SQUARE;
     /* ^ horizon is at infinity, but we can't use too big infinity
-        (YAGBAR_INFINITY) because it would overflow in the following mult. */
+        (YGR_INFINITY) because it would overflow in the following mult. */
     hit->position.x = MATH_fast_div(
             (ray->direction.x * hit->distance), 
             RENDER_UNITS_PER_SQUARE
@@ -545,240 +670,25 @@ _RENDER_makeInfiniteHit(RENDER_HitResult *hit, YAGBAR_Ray *ray)
     hit->type = 0;
 }
 
-IWRAM_CODE
-static inline
-void 
-_RENDER_columnFunctionComplex(
-    RENDER_HitResult *hits, 
-    u16 hitCount, 
-    u16 x,
-    YAGBAR_Ray ray
-)
-{
-    // last written Y position, can never go backwards
-    YAGBAR_Unit fPosY = _RENDER_camera.resolution.y;
-    YAGBAR_Unit cPosY = -1;
-
-    // world coordinates (relative to camera height though)
-    YAGBAR_Unit fZ1World = _RENDER_startFloorHeight;
-    YAGBAR_Unit cZ1World = _RENDER_startCeil_Height;
-
-    RENDER_PixelInfo p;
-    p.position.x = x;
-    p.height = 0;
-    p.wall_height = 0;
-    p.texCoords.x = 0;
-    p.texCoords.y = 0;
-
-    // we'll be simulatenously drawing the floor and the ceiling now  
-    for (YAGBAR_Unit j = 0; j <= hitCount; ++j) {                    
-        // ^ = add extra iteration for horizon plane
-        s8 drawingHorizon = j == hitCount;
-
-        RENDER_HitResult hit;
-        YAGBAR_Unit distance = 1;
-
-        YAGBAR_Unit fWallHeight = 0, cWallHeight = 0;
-        YAGBAR_Unit fZ2World = 0,    cZ2World = 0;
-        YAGBAR_Unit fZ1Screen = 0,   cZ1Screen = 0;
-        YAGBAR_Unit fZ2Screen = 0,   cZ2Screen = 0;
-
-        if (!drawingHorizon) {
-            hit = hits[j];
-            distance = MATH_nonZero(hit.distance); 
-            p.hit = hit;
-
-            fWallHeight = _RENDER_floorFunction(hit.square.x,hit.square.y);
-            fZ2World = fWallHeight - _RENDER_camera.height;
-            fZ1Screen = _RENDER_middleRow - RENDER_perspectiveScaleVertical(
-                    MATH_fast_div(
-                            (fZ1World * _RENDER_camera.resolution.y),
-                            RENDER_UNITS_PER_SQUARE
-                        ),
-                    distance
-                );
-            fZ2Screen = _RENDER_middleRow - RENDER_perspectiveScaleVertical(
-                    MATH_fast_div(
-                            (fZ2World * _RENDER_camera.resolution.y),
-                            RENDER_UNITS_PER_SQUARE
-                        ),
-                    distance
-                );
-
-            if (_RENDER_ceilFunction != 0) {
-                cWallHeight = _RENDER_ceilFunction(hit.square.x,hit.square.y);
-                cZ2World = cWallHeight - _RENDER_camera.height;
-                cZ1Screen = _RENDER_middleRow - RENDER_perspectiveScaleVertical(
-                        MATH_fast_div(
-                                (cZ1World * _RENDER_camera.resolution.y),
-                                RENDER_UNITS_PER_SQUARE
-                            ),
-                        distance
-                    );
-                cZ2Screen = _RENDER_middleRow - RENDER_perspectiveScaleVertical(
-                        MATH_fast_div(
-                                (cZ2World * _RENDER_camera.resolution.y),
-                                RENDER_UNITS_PER_SQUARE
-                            ),
-                        distance
-                    );
-            }
-        }
-        else {
-            fZ1Screen = _RENDER_middleRow;
-            cZ1Screen = _RENDER_middleRow + 1;
-            _RENDER_makeInfiniteHit(&p.hit,&ray);
-        }
-
-        YAGBAR_Unit limit;
-
-        p.is_wall = 0;
-        p.is_horizon = drawingHorizon;
-
-        // draw floor until wall
-        p.is_floor = 1;
-        p.height = fZ1World + _RENDER_camera.height;
-        p.wall_height = 0;
-
-#if RENDER_COMPUTE_FLOOR_DEPTH == 1
-        p.depth = (_RENDER_fHorizontalDepthStart - fPosY) * _RENDER_horizontalDepthStep;
-#else
-        p.depth = 0;
-#endif /* RENDER_COMPUTE_FLOOR_DEPTH */
-
-    limit = _RENDER_drawHorizontalColumn(
-            fPosY,
-            fZ1Screen,
-            cPosY + 1,
-            _RENDER_camera.resolution.y,
-            fZ1World,
-            -1,
-            RENDER_COMPUTE_FLOOR_DEPTH,
-            // ^ purposfully allow outside screen bounds
-            RENDER_COMPUTE_FLOOR_TEXCOORDS && p.height == RENDER_FLOOR_TEXCOORDS_HEIGHT,
-            1,
-            &ray,
-            &p
-        );
-
-    if (fPosY > limit)
-        fPosY = limit;
-
-    if (_RENDER_ceilFunction != 0 || drawingHorizon) {
-        // draw ceiling until wall
-        p.is_floor = 0;
-        p.height = cZ1World + _RENDER_camera.height;
-
-#if RENDER_COMPUTE_CEILING_DEPTH == 1
-        p.depth = (cPosY - _RENDER_cHorizontalDepthStart)
-            * _RENDER_horizontalDepthStep;
-#endif /* RENDER_COMPUTE_CEILING_DEPTH */
-
-        limit = _RENDER_drawHorizontalColumn(
-                cPosY,
-                cZ1Screen,
-                -1,
-                fPosY - 1,
-                cZ1World,
-                1,
-                RENDER_COMPUTE_CEILING_DEPTH,
-                0,
-                1,
-                &ray,
-                &p
-            );
-        // ^ purposfully allow outside screen bounds here
-
-        if (cPosY < limit)
-            cPosY = limit;
-    }
-
-    if (!drawingHorizon) { // don't draw walls for horizon plane
-        p.is_wall = 1;
-        p.depth = distance;
-        p.is_floor = 1;
-        p.texCoords.x = hit.texture_coord;
-        p.height = fZ1World + _RENDER_camera.height;
-        p.wall_height = fWallHeight;
-
-        // draw floor wall
-
-        if (fPosY > 0) { // still pixels left?
-        
-            p.is_floor = 1;
-
-            limit = _RENDER_drawWall(
-                    fPosY,
-                    fZ1Screen,
-                    fZ2Screen,
-                    cPosY + 1,
-                    _RENDER_camera.resolution.y,
-                    // ^ purposfully allow outside screen bounds here
-#if RENDER_TEXTURE_VERTICAL_STRETCH == 1
-                  RENDER_UNITS_PER_SQUARE
-#else
-                  fZ2World - fZ1World
-#endif /* RENDER_TEXTURE_VERTICAL_STRETCH */
-                  ,-1,
-                  &p
-                  );
-                
-
-        if (fPosY > limit)
-            fPosY = limit;
-
-            fZ1World = fZ2World; // for the next iteration
-        }               // ^ purposfully allow outside screen bounds here
-
-      // draw ceiling wall
-
-        if (_RENDER_ceilFunction != 0 && cPosY < _RENDER_camResYLimit) { // pixels left?
-
-            p.is_floor = 0;
-            p.height = cZ1World + _RENDER_camera.height;
-            p.wall_height = cWallHeight;
-
-            limit = _RENDER_drawWall(
-                    cPosY,
-                    cZ1Screen,
-                    cZ2Screen,
-                    -1,
-                    fPosY - 1,
-                    // ^ puposfully allow outside screen bounds here
-#if RENDER_TEXTURE_VERTICAL_STRETCH == 1
-                  RENDER_UNITS_PER_SQUARE
-#else
-                    cZ1World - cZ2World 
-#endif /* RENDER_TEXTURE_VERTICAL_STRETCH */
-                    ,1,
-                    &p
-                );
-                        
-                if (cPosY < limit)
-                    cPosY = limit;
-
-                cZ1World = cZ2World; // for the next iteration
-            }              // ^ puposfully allow outside screen bounds here 
-        }
-    }
-}
-
 
 IWRAM_CODE
 static inline
 void 
-_RENDER_columnFunctionSimple(
+_RENDER_columnFunction(
     RENDER_HitResult *hits, 
     u16 hitCount,
     u16 x, 
-    YAGBAR_Ray ray
+    YGR_Ray ray
 )
 {
-    YAGBAR_Unit y = 0;
-    YAGBAR_Unit wallHeightScreen = 0;
-    YAGBAR_Unit wallStart = _RENDER_middleRow;
+    YGR_Unit 
+        y = 0,
+    
+        wallHeightScreen = 0,
+        wallStart = _RENDER_middleRow,
+        wallEnd   = _RENDER_middleRow,
 
-    YAGBAR_Unit dist = 1;
+        dist = 1;
 
     RENDER_PixelInfo p;
     p.position.x = x;
@@ -786,7 +696,7 @@ _RENDER_columnFunctionSimple(
 
     if (hitCount > 0) {
         RENDER_HitResult hit = hits[0];
-        _RENDER_depthBuf[x] = hit.distance;
+        _RENDER_depthBuf[_RENDER_page][x] = hit.distance;
 
         u8 goOn = 1;
 
@@ -802,7 +712,7 @@ _RENDER_columnFunctionSimple(
             else {
                 // normal hit, check the door roll
 
-                YAGBAR_Unit texCoordMod = MATH_fast_mod(hit.texture_coord, RENDER_UNITS_PER_SQUARE);
+                YGR_Unit texCoordMod = MATH_fast_mod(hit.texture_coord, RENDER_UNITS_PER_SQUARE);
 
                 s8 unrolled = hit.doorRoll >= 0 ?
                 (hit.doorRoll > texCoordMod) :
@@ -837,7 +747,7 @@ _RENDER_columnFunctionSimple(
         if (goOn) {
             dist = hit.distance;
 
-            YAGBAR_Unit wallHeightWorld = _RENDER_floorFunction(hit.square.x,hit.square.y);
+            YGR_Unit wallHeightWorld = _RENDER_floorFunction(hit.square.x,hit.square.y);
 
             if (wallHeightWorld < 0) {
                 /* We can't just do wallHeightWorld = max(0,wallHeightWorld) because
@@ -846,21 +756,21 @@ _RENDER_columnFunctionSimple(
                 wallHeightWorld = RENDER_UNITS_PER_SQUARE;
             }
 
-            YAGBAR_Unit worldPointTop = wallHeightWorld - _RENDER_camera.height;
-            YAGBAR_Unit worldPointBottom = -1 * _RENDER_camera.height;
+            YGR_Unit worldPointTop = wallHeightWorld - _RENDER_camera->height;
+            YGR_Unit worldPointBottom = -1 * _RENDER_camera->height;
 
             wallStart = _RENDER_middleRow - MATH_fast_div(
                     (
                             RENDER_perspectiveScaleVertical(worldPointTop,dist)
-                            * _RENDER_camera.resolution.y
+                            * _RENDER_camera->resolution.y
                         ),
                     RENDER_UNITS_PER_SQUARE
                 );
 
-            s16 wallEnd =  _RENDER_middleRow - MATH_fast_div(
+            wallEnd =  _RENDER_middleRow - MATH_fast_div(
                     (
                             RENDER_perspectiveScaleVertical(worldPointBottom,dist)
-                            * _RENDER_camera.resolution.y
+                            * _RENDER_camera->resolution.y
                         ), 
                     RENDER_UNITS_PER_SQUARE
                 );
@@ -870,15 +780,27 @@ _RENDER_columnFunctionSimple(
             if (wallHeightScreen <= 0) // can happen because of rounding errors
                 wallHeightScreen = 1; 
         }
+        else {
+            wallStart        = 0;
+            wallEnd          = _RENDER_camResYLimit;
+            wallHeightScreen = 0;
+        }
     }
     else {
         _RENDER_makeInfiniteHit(&p.hit,&ray);
-        _RENDER_depthBuf[x] = YAGBAR_INFINITY;
+        _RENDER_depthBuf[_RENDER_page][x] = YGR_INFINITY;
+        wallStart        = 0;
+        wallEnd          = _RENDER_camResYLimit;
+        wallHeightScreen = 0;
+            
+        _RENDER_wallTopBuf[_RENDER_page][x] = MATH_clamp(wallStart, 0, _RENDER_camResYLimit);
+        _RENDER_wallBotBuf[_RENDER_page][x] = MATH_clamp(wallEnd,   0, _RENDER_camResYLimit);
     }
-
     // draw ceiling
 #ifdef RENDER_COLUMN_FUNCTION
-    RENDER_COLUMN_FUNCTION(x, 0, wallStart - 1, 0);
+    u8 prev_top = _RENDER_wallTopBuf[_RENDER_page][x];
+    if (wallStart < prev_top)
+        RENDER_COLUMN_FUNCTION(x, wallStart, prev_top - 1, 0);
     y = wallStart;
 #else
 
@@ -887,19 +809,33 @@ _RENDER_columnFunctionSimple(
     p.is_horizon = 1;
     p.depth = 1;
     p.height = RENDER_UNITS_PER_SQUARE;
-    y = _RENDER_drawHorizontalColumn(
-            -1,
-            wallStart,
-            -1,
-            _RENDER_middleRow,
-            _RENDER_camera.height,
-            1,
-            RENDER_COMPUTE_CEILING_DEPTH,
-            0,
-            1,
-            &ray,
-            &p
-        );
+    
+    u8 prev_top = MATH_clamp(_RENDER_wallTopBuf[_RENDER_page][x], 0, SCREEN_H);
+    YGR_Unit clampedWallStart = MATH_clamp(wallStart, 0, _RENDER_camResYLimit);
+    YGR_Unit clampedWallEnd   = MATH_clamp(wallEnd,   0, _RENDER_camResYLimit);
+
+    //if (prev_top < clampedWallStart) {
+    u8 top = MATH_min(prev_top, clampedWallStart);
+        y = MATH_clamp(
+                _RENDER_drawHorizontalColumn(
+                        top-1,
+                        clampedWallStart,
+                        -1,
+                        clampedWallStart,
+                        _RENDER_camera->height,
+                        1,
+                        RENDER_COMPUTE_CEILING_DEPTH,
+                        0,
+                        1,
+                        &ray,
+                        &p
+                    ),
+                0,
+                _RENDER_camResYLimit
+            );
+    //}
+    //else
+    //    y = clampedWallStart;
 #endif /* RENDER_COLUMN_FUNCTION */
 
     // draw wall
@@ -916,9 +852,10 @@ _RENDER_columnFunctionSimple(
     p.texCoords.x = p.hit.texture_coord;
     p.texCoords.y = 0;
 
-    YAGBAR_Unit limit = _RENDER_drawWall(
-            y,wallStart,
-            wallStart + wallHeightScreen - 1,
+    YGR_Unit limit = _RENDER_drawWall(
+            y,
+            wallStart,
+            wallEnd,
             -1,
             _RENDER_camResYLimit,
             p.hit.array_value,
@@ -931,27 +868,36 @@ _RENDER_columnFunctionSimple(
 
     // draw floor
 #ifdef RENDER_COLUMN_FUNCTION
-    RENDER_COLUMN_FUNCTION(x, y, _RENDER_camResYLimit, 1);
+    u8 prev_bot = _RENDER_wallBotBuf[_RENDER_page][x];
+    if (y < prev_bot)
+    RENDER_COLUMN_FUNCTION(x, prev_bot, y - 1, 1);
 #else
     p.is_wall = 0;
-
+    
     #if RENDER_COMPUTE_FLOOR_DEPTH == 1
-    p.depth = (_RENDER_camera.resolution.y - y) * _RENDER_horizontalDepthStep + 1;
+    p.depth = (_RENDER_camera->resolution.y - y) * _RENDER_horizontalDepthStep + 1;
     #endif
-
-    _RENDER_drawHorizontalColumn(
-            y,_RENDER_camResYLimit,
-            -1,
-            _RENDER_camResYLimit,
-            _RENDER_camera.height,
-            1,
-            RENDER_COMPUTE_FLOOR_DEPTH,
-            RENDER_COMPUTE_FLOOR_TEXCOORDS,
-            -1,
-            &ray,
-            &p
-        );
+    
+    u8 prev_bot = _RENDER_wallBotBuf[_RENDER_page][x];
+    //if (clampedWallEnd < prev_bot)
+    u8 bot = MATH_max(prev_bot, clampedWallEnd);
+        _RENDER_drawHorizontalColumn(
+                clampedWallEnd,
+                prev_bot,
+                -1,
+                prev_bot,
+                _RENDER_camera->height,
+                1,
+                RENDER_COMPUTE_FLOOR_DEPTH,
+                RENDER_COMPUTE_FLOOR_TEXCOORDS,
+                -1,
+                &ray,
+                &p
+            );
 #endif /* RENDER_COLUMN_FUNCTION */
+    
+    _RENDER_wallTopBuf[_RENDER_page][x] = clampedWallStart;
+    _RENDER_wallBotBuf[_RENDER_page][x] = clampedWallEnd;
 }
 
 /*
@@ -961,17 +907,17 @@ _RENDER_columnFunctionSimple(
 IWRAM_CODE 
 static inline 
 void _RENDER_precomputeFloorDistances(
-    YAGBAR_Camera camera,
-    YAGBAR_Unit *dest, 
+    YGR_Unit *dest, 
     u16 startIndex
 )
 {
-    YAGBAR_Unit camHeightScreenSize =  MATH_fast_div(
-            (camera.height * camera.resolution.y), 
+    YGR_Unit cam_res_y = _RENDER_camera->resolution.y;
+    YGR_Unit camHeightScreenSize =  MATH_fast_div(
+            (_RENDER_camera->height * cam_res_y), 
             RENDER_UNITS_PER_SQUARE
         );
 
-    for (u16 i = startIndex; i < camera.resolution.y; ++i)
+    for (u16 i = startIndex; i < cam_res_y; ++i)
         dest[i] = RENDER_perspectiveScaleVerticalInverse(
                 camHeightScreenSize,
                 MATH_abs(i - _RENDER_middleRow)
@@ -984,8 +930,8 @@ void _RENDER_precomputeFloorDistances(
 */
 IWRAM_CODE 
 static inline 
-YAGBAR_Unit 
-_RENDER_fovCorrectionFactor(YAGBAR_Unit fov)
+YGR_Unit 
+_RENDER_fovCorrectionFactor(YGR_Unit fov)
 {
   u16 table[9] = 
     {1,208,408,692,1024,1540,2304,5376,30000};
@@ -1001,42 +947,155 @@ _RENDER_fovCorrectionFactor(YAGBAR_Unit fov)
 }
 
 
+/*  Casts rays for given camera view and for each hit calls a user provided
+    function.
+*/
+IWRAM_CODE 
+static inline
+void 
+_RENDER_castRaysMultiHit(
+    RENDER_ArrayFunction   arrayFunc,
+    RENDER_ArrayFunction   typeFunction, 
+    RENDER_ColumnFunction  columnFunc,
+    YGR_RayConstraints     constraints
+)
+{
+    YGR_Unit angle      = _RENDER_camera->angle;
+    YGR_Vec2 resolution = _RENDER_camera->resolution;
+    
+    YGR_Vec2 dir1 = MATH_angleToDirection(
+            angle - RENDER_HORIZONTAL_FOV_HALF
+        );
+
+    YGR_Vec2 dir2 = MATH_angleToDirection(
+            angle + RENDER_HORIZONTAL_FOV_HALF
+        );
+
+    /* We scale the side distances so that the middle one is
+        RENDER_UNITS_PER_SQUARE, which has to be this way. */
+    YGR_Unit cos = MATH_nonZero(MATH_cos(RENDER_HORIZONTAL_FOV_HALF));
+
+    dir1.x = MATH_fast_div((dir1.x * RENDER_UNITS_PER_SQUARE), cos);
+    dir1.y = MATH_fast_div((dir1.y * RENDER_UNITS_PER_SQUARE), cos);
+
+    dir2.x = MATH_fast_div((dir2.x * RENDER_UNITS_PER_SQUARE), cos);
+    dir2.y = MATH_fast_div((dir2.y * RENDER_UNITS_PER_SQUARE), cos);
+
+    YGR_Unit dX = dir2.x - dir1.x;
+    YGR_Unit dY = dir2.y - dir1.y;
+
+    RENDER_HitResult hits[constraints.max_hits];
+    u16 hitCount;
+
+    YGR_Ray r;
+    r.start = _RENDER_camera->position;
+
+    YGR_Unit currentDX = 0;
+    YGR_Unit currentDY = 0;
+
+    for (s16 i = 0; i < resolution.x; ++i) {
+        /* Here by linearly interpolating the direction vector its length changes,
+        which in result achieves correcting the fish eye effect (computing
+        perpendicular distance). */
+
+        r.direction.x = dir1.x + MATH_fast_div(currentDX, resolution.x);
+        r.direction.y = dir1.y + MATH_fast_div(currentDY, resolution.x);
+
+        RENDER_castRayMultiHit(r,arrayFunc,typeFunction,hits,&hitCount,constraints);
+
+        columnFunc(hits,hitCount,i,r);
+
+        currentDX += dX;
+        currentDY += dY;
+    }
+}
+
+
 /*******************************************************************************
     PUBLIC METHODS
 *******************************************************************************/
+IWRAM_CODE 
+RENDER_PixelInfo 
+RENDER_mapToScreen(
+    YGR_Vec2 worldPosition, 
+    YGR_Unit     height,
+    YGR_Camera   camera
+)
+{
+    RENDER_PixelInfo result;
+
+    YGR_Vec2 toPoint;
+
+    toPoint.x = worldPosition.x - camera.position.x;
+    toPoint.y = worldPosition.y - camera.position.y;
+
+    YGR_Unit middleColumn = camera.resolution.x >> 1;
+
+    // rotate the point to camera space (y left/right, x forw/backw)
+
+    YGR_Unit cos = MATH_cos(camera.angle);
+    YGR_Unit sin = MATH_sin(camera.angle);
+
+    YGR_Unit tmp = toPoint.x;
+
+    toPoint.x = MATH_fast_div((toPoint.x * cos - toPoint.y * sin), YGR_UNITS_PER_SQUARE); 
+    toPoint.y = MATH_fast_div((tmp * sin + toPoint.y * cos), YGR_UNITS_PER_SQUARE); 
+
+    result.depth = toPoint.x;
+
+    result.position.x = middleColumn - MATH_fast_div(
+            (
+                    RENDER_perspectiveScaleHorizontal(toPoint.y,result.depth) 
+                    * middleColumn
+                ),
+            YGR_UNITS_PER_SQUARE
+        );
+
+    result.position.y = MATH_fast_div(
+            (
+                    RENDER_perspectiveScaleVertical(height - camera.height,result.depth)
+                    * camera.resolution.y
+                ), 
+            YGR_UNITS_PER_SQUARE
+        );
+    
+    result.position.y = (camera.resolution.y >> 1) - result.position.y + camera.shear;
+
+    return result;
+}
+
 
 IWRAM_CODE
-static inline
 void 
 RENDER_castRayMultiHit(
-    YAGBAR_Ray ray, 
+    YGR_Ray ray, 
     RENDER_ArrayFunction arrayFunc,
     RENDER_ArrayFunction typeFunc, 
     RENDER_HitResult *hitResults,
     u16 *hitResultsLen, 
-    YAGBAR_RayConstraints constraints
+    YGR_RayConstraints constraints
 )
 {
-    YAGBAR_Vec2 currentPos = ray.start;
-    YAGBAR_Vec2 currentSquare;
+    YGR_Vec2 currentPos = ray.start;
+    YGR_Vec2 currentSquare;
 
     currentSquare.x = MATH_divRoundDown(ray.start.x,RENDER_UNITS_PER_SQUARE);
     currentSquare.y = MATH_divRoundDown(ray.start.y,RENDER_UNITS_PER_SQUARE);
 
     *hitResultsLen = 0;
 
-    YAGBAR_Unit squareType = arrayFunc(currentSquare.x,currentSquare.y);
+    YGR_Unit squareType = arrayFunc(currentSquare.x,currentSquare.y);
 
     // DDA variables
-    YAGBAR_Vec2 nextSideDist; // dist. from start to the next side in given axis
-    YAGBAR_Vec2 delta;
-    YAGBAR_Vec2 step;         // -1 or 1 for each axis
+    YGR_Vec2 nextSideDist; // dist. from start to the next side in given axis
+    YGR_Vec2 delta;
+    YGR_Vec2 step;         // -1 or 1 for each axis
     s8 stepHorizontal = 0; // whether the last step was hor. or vert.
 
     nextSideDist.x = 0;
     nextSideDist.y = 0;
 
-    YAGBAR_Unit dirVecLengthNorm = MATH_len(ray.direction) * RENDER_UNITS_PER_SQUARE;
+    YGR_Unit dirVecLengthNorm = MATH_len(ray.direction) * RENDER_UNITS_PER_SQUARE;
 
     delta.x = MATH_abs(dirVecLengthNorm / MATH_nonZero(ray.direction.x));
     delta.y = MATH_abs(dirVecLengthNorm / MATH_nonZero(ray.direction.y));
@@ -1089,14 +1148,14 @@ RENDER_castRayMultiHit(
 
     #define RECIP_SCALE 65536
 
-    YAGBAR_Unit dx = MATH_nonZero(ray.direction.x);
-    YAGBAR_Unit dy = MATH_nonZero(ray.direction.y);
-    YAGBAR_Unit rayDirXRecip = depth_reciprocal_65536[MATH_abs(dx)]; if (dx < 0) rayDirXRecip = -rayDirXRecip;
-    YAGBAR_Unit rayDirYRecip = depth_reciprocal_65536[MATH_abs(dy)]; if (dy < 0) rayDirYRecip = -rayDirYRecip;
+    YGR_Unit dx = MATH_nonZero(ray.direction.x);
+    YGR_Unit dy = MATH_nonZero(ray.direction.y);
+    YGR_Unit rayDirXRecip = depth_reciprocal_65536[MATH_abs(dx)]; if (dx < 0) rayDirXRecip = -rayDirXRecip;
+    YGR_Unit rayDirYRecip = depth_reciprocal_65536[MATH_abs(dy)]; if (dy < 0) rayDirYRecip = -rayDirYRecip;
     // ^ we precompute reciprocals to avoid divisions in the loop
 
     for (u16 i = 0; i < constraints.max_steps; ++i) {
-        YAGBAR_Unit currentType = RENDER_RS_HEIGHT_FN(currentSquare.x,currentSquare.y);
+        YGR_Unit currentType = RENDER_RS_HEIGHT_FN(currentSquare.x,currentSquare.y);
 
         if (MATH_unlikely(currentType != squareType)) {
             // collision
@@ -1117,7 +1176,7 @@ RENDER_castRayMultiHit(
                 h.position.x += RENDER_UNITS_PER_SQUARE;
                 }
 
-                YAGBAR_Unit diff = h.position.x - ray.start.x;
+                YGR_Unit diff = h.position.x - ray.start.x;
 
                 h.position.y = // avoid division by multiplying with reciprocal
                     ray.start.y 
@@ -1136,7 +1195,7 @@ RENDER_castRayMultiHit(
     the same principal axis). */
 
 #define CORRECT(dir1,dir2)\
-    YAGBAR_Unit tmp = diff >> 2;        /* 4 to prevent overflow */ \
+    YGR_Unit tmp = diff >> 2;        /* 4 to prevent overflow */ \
     h.distance = ((tmp >> 3) != 0) /* prevent a bug with small dists */ \
         ? MATH_fast_div((tmp * RENDER_UNITS_PER_SQUARE * rayDir ## dir1 ## Recip), (RECIP_SCALE >> 2))\
         : MATH_abs(h.position.dir2 - ray.start.dir2)
@@ -1154,7 +1213,7 @@ RENDER_castRayMultiHit(
                 h.position.y += RENDER_UNITS_PER_SQUARE;
                 }
 
-                YAGBAR_Unit diff = h.position.y - ray.start.y;
+                YGR_Unit diff = h.position.y - ray.start.y;
 
                 h.position.x =
                     ray.start.x 
@@ -1233,13 +1292,12 @@ RENDER_castRayMultiHit(
 
 
 IWRAM_CODE
-static inline
 RENDER_HitResult 
-RENDER_castRay(YAGBAR_Ray ray, RENDER_ArrayFunction arrayFunc)
+RENDER_castRay(YGR_Ray ray, RENDER_ArrayFunction arrayFunc)
 {
     RENDER_HitResult result;
     u16 len;
-    YAGBAR_RayConstraints c;
+    YGR_RayConstraints c;
 
     c.max_steps = 1000;
     c.max_hits = 1;
@@ -1252,140 +1310,41 @@ RENDER_castRay(YAGBAR_Ray ray, RENDER_ArrayFunction arrayFunc)
     return result;
 }
 
-IWRAM_CODE 
-void 
-RENDER_castRaysMultiHit(
-    YAGBAR_Camera         cam, 
-    RENDER_ArrayFunction  arrayFunc,
-    RENDER_ArrayFunction  typeFunction, 
-    RENDER_ColumnFunction columnFunc,
-    YAGBAR_RayConstraints constraints
-)
-{
-    YAGBAR_Vec2 dir1 =
-        MATH_angleToDirection(cam.angle - RENDER_HORIZONTAL_FOV_HALF);
-
-    YAGBAR_Vec2 dir2 =
-        MATH_angleToDirection(cam.angle + RENDER_HORIZONTAL_FOV_HALF);
-
-    /* We scale the side distances so that the middle one is
-        RENDER_UNITS_PER_SQUARE, which has to be this way. */
-    YAGBAR_Unit cos = MATH_nonZero(MATH_cos(RENDER_HORIZONTAL_FOV_HALF));
-
-    dir1.x = MATH_fast_div((dir1.x * RENDER_UNITS_PER_SQUARE), cos);
-    dir1.y = MATH_fast_div((dir1.y * RENDER_UNITS_PER_SQUARE), cos);
-
-    dir2.x = MATH_fast_div((dir2.x * RENDER_UNITS_PER_SQUARE), cos);
-    dir2.y = MATH_fast_div((dir2.y * RENDER_UNITS_PER_SQUARE), cos);
-
-    YAGBAR_Unit dX = dir2.x - dir1.x;
-    YAGBAR_Unit dY = dir2.y - dir1.y;
-
-    RENDER_HitResult hits[constraints.max_hits];
-    u16 hitCount;
-
-    YAGBAR_Ray r;
-    r.start = cam.position;
-
-    YAGBAR_Unit currentDX = 0;
-    YAGBAR_Unit currentDY = 0;
-
-    for (s16 i = 0; i < cam.resolution.x; ++i) {
-        /* Here by linearly interpolating the direction vector its length changes,
-        which in result achieves correcting the fish eye effect (computing
-        perpendicular distance). */
-
-        r.direction.x = dir1.x + MATH_fast_div(currentDX, cam.resolution.x);
-        r.direction.y = dir1.y + MATH_fast_div(currentDY, cam.resolution.x);
-
-        RENDER_castRayMultiHit(r,arrayFunc,typeFunction,hits,&hitCount,constraints);
-
-        columnFunc(hits,hitCount,i,r);
-
-        currentDX += dX;
-        currentDY += dY;
-    }
-}
-
-
-void 
-RENDER_renderComplex(
-    YAGBAR_Camera         cam, 
-    RENDER_ArrayFunction  floorHeightFunc,
-    RENDER_ArrayFunction  ceilingHeightFunc, 
-    RENDER_ArrayFunction  typeFunction,
-    YAGBAR_RayConstraints constraints
-)
-{
-    _RENDER_floorFunction = floorHeightFunc;
-    _RENDER_ceilFunction = ceilingHeightFunc;
-    _RENDER_camera = cam;
-    _RENDER_camResYLimit = cam.resolution.y - 1;
-
-    u16 halfResY = cam.resolution.y >> 1;
-
-    _RENDER_middleRow = halfResY + cam.shear;
-
-    _RENDER_fHorizontalDepthStart = _RENDER_middleRow + halfResY;
-    _RENDER_cHorizontalDepthStart = _RENDER_middleRow - halfResY;
-
-    _RENDER_startFloorHeight = floorHeightFunc(
-        MATH_divRoundDown(cam.position.x,RENDER_UNITS_PER_SQUARE),
-        MATH_divRoundDown(cam.position.y,RENDER_UNITS_PER_SQUARE)) -1 * cam.height;
-
-    _RENDER_startCeil_Height = 
-        ceilingHeightFunc != (0) 
-            ? ceilingHeightFunc(
-                    MATH_divRoundDown(cam.position.x,RENDER_UNITS_PER_SQUARE),
-                    MATH_divRoundDown(cam.position.y,RENDER_UNITS_PER_SQUARE)
-                ) -1 * cam.height
-            : YAGBAR_INFINITY;
-
-    _RENDER_horizontalDepthStep = MATH_fast_div(RENDER_HORIZON_DEPTH, cam.resolution.y); 
-
-#if RENDER_COMPUTE_FLOOR_TEXCOORDS == 1
-    YAGBAR_Unit floorPixelDistances[cam.resolution.y];
-    _RENDER_precomputeFloorDistances(cam,floorPixelDistances,0);
-    _RENDER_floorPixelDistances = floorPixelDistances; // pass to column function
-#endif
-
-    RENDER_castRaysMultiHit(cam,_RENDER_floorCeilFunction,typeFunction,
-        _RENDER_columnFunctionComplex,constraints);
-}
 
 IWRAM_CODE 
 void 
 RENDER_renderSimple(
-    YAGBAR_Camera        cam, 
-    RENDER_ArrayFunction floorHeightFunc,
-    RENDER_ArrayFunction typeFunc, 
-    RENDER_ArrayFunction rollFunc,
-    YAGBAR_RayConstraints constraints
+    YGR_Camera           *cam, 
+    RENDER_ArrayFunction  floorHeightFunc,
+    RENDER_ArrayFunction  typeFunc, 
+    RENDER_ArrayFunction  rollFunc,
+    YGR_RayConstraints    constraints
 )
 {
+    YGR_Vec2 cam_res = cam->resolution;
     _RENDER_floorFunction = floorHeightFunc;
     _RENDER_camera        = cam;
-    _RENDER_camResYLimit  = cam.resolution.y - 1;
-    _RENDER_middleRow     = cam.resolution.y >> 1;
+    _RENDER_camResYLimit  = cam_res.y - 1;
+    _RENDER_middleRow     = (cam_res.y >> 1) + cam->shear;
     _RENDER_rollFunction  = rollFunc;
 
     _RENDER_cameraHeightScreen = MATH_fast_div(
             (
-                    _RENDER_camera.resolution.y 
-                    * (_RENDER_camera.height - RENDER_UNITS_PER_SQUARE)
+                    _RENDER_camera->resolution.y 
+                    * (_RENDER_camera->height - RENDER_UNITS_PER_SQUARE)
                 ),
             RENDER_UNITS_PER_SQUARE
         );
 
-    _RENDER_horizontalDepthStep = MATH_fast_div(RENDER_HORIZON_DEPTH, cam.resolution.y); 
+    _RENDER_horizontalDepthStep = MATH_fast_div(RENDER_HORIZON_DEPTH, cam_res.y); 
 
     constraints.max_hits = (_RENDER_rollFunction == 0)
         ? 1  // no door => 1 hit is enough 
         : 3; // for correctly rendering rolling doors we'll need 3 hits (NOT 2)
 
     #if RENDER_COMPUTE_FLOOR_TEXCOORDS == 1
-    YAGBAR_Unit floorPixelDistances[cam.resolution.y];
-    _RENDER_precomputeFloorDistances(cam,floorPixelDistances,_RENDER_middleRow);
+    YGR_Unit floorPixelDistances[cam_res.y];
+    _RENDER_precomputeFloorDistances(floorPixelDistances,_RENDER_middleRow);
     _RENDER_floorPixelDistances = floorPixelDistances; // pass to column function
     #endif
 
@@ -1396,45 +1355,65 @@ RENDER_renderSimple(
         _RENDER_fovCorrectionFactors[1],
         RENDER_UNITS_PER_SQUARE
     );
-
-    RENDER_castRaysMultiHit(
-            cam,
+    
+    _RENDER_castRaysMultiHit(
             _floorHeightNotZeroFunction,
             typeFunc,
-            _RENDER_columnFunctionSimple, 
+            _RENDER_columnFunction, 
             constraints
         );
-
+        
 #if RENDER_COMPUTE_FLOOR_TEXCOORDS == 1
     _RENDER_floorPixelDistances = 0;
 #endif
 
-    drawSprites(&cam);
+    drawSprites();
 }
 
 IWRAM_CODE 
-YAGBAR_Unit 
-RENDER_perspectiveScaleVertical(YAGBAR_Unit originalSize, YAGBAR_Unit distance)
+YGR_Unit 
+RENDER_perspectiveScaleVertical(YGR_Unit originalSize, YGR_Unit distance)
 {
   if (_RENDER_fovCorrectionFactors[1] == 0)
     _RENDER_fovCorrectionFactors[1] = _RENDER_fovCorrectionFactor(RENDER_VERTICAL_FOV);
 
-  return distance != 0 
+  return (distance != 0)
         ? MATH_fast_div(
-                (originalSize * YAGBAR_UNITS_PER_SQUARE),
+                (originalSize * YGR_UNITS_PER_SQUARE),
                 MATH_nonZero(
                         MATH_fast_div(
                                 (_RENDER_fovCorrectionFactors[1] * distance), 
-                                YAGBAR_UNITS_PER_SQUARE
+                                YGR_UNITS_PER_SQUARE
                             )
                     )
             ) 
         : 0;
 }
 
+
 IWRAM_CODE 
-YAGBAR_Unit
-RENDER_perspectiveScaleHorizontal(YAGBAR_Unit originalSize, YAGBAR_Unit distance)
+YGR_Unit 
+RENDER_perspectiveScaleVerticalInverse(YGR_Unit originalSize, YGR_Unit scaledSize)
+{
+  if (_RENDER_fovCorrectionFactors[1] == 0)
+    _RENDER_fovCorrectionFactors[1] = _RENDER_fovCorrectionFactor(RENDER_VERTICAL_FOV);
+
+  return (scaledSize != 0)
+        ? MATH_fast_div(
+                (originalSize * YGR_UNITS_PER_SQUARE),
+                MATH_nonZero( 
+                        MATH_fast_div(
+                                (_RENDER_fovCorrectionFactors[1] * scaledSize), 
+                                YGR_UNITS_PER_SQUARE
+                            )
+                    )
+            ) 
+        : YGR_INFINITY;
+}
+
+IWRAM_CODE 
+YGR_Unit
+RENDER_perspectiveScaleHorizontal(YGR_Unit originalSize, YGR_Unit distance)
 {
     if (_RENDER_fovCorrectionFactors[0] == 0)
         _RENDER_fovCorrectionFactors[0] = _RENDER_fovCorrectionFactor(RENDER_HORIZONTAL_FOV);
@@ -1453,10 +1432,10 @@ RENDER_perspectiveScaleHorizontal(YAGBAR_Unit originalSize, YAGBAR_Unit distance
 }
 
 IWRAM_CODE 
-YAGBAR_Unit 
+YGR_Unit 
 RENDER_perspectiveScaleHorizontalInverse(
-    YAGBAR_Unit originalSize,
-    YAGBAR_Unit scaledSize
+    YGR_Unit originalSize,
+    YGR_Unit scaledSize
 )
 {
   // TODO: probably doesn't work
@@ -1469,29 +1448,29 @@ RENDER_perspectiveScaleHorizontalInverse(
                     RENDER_UNITS_PER_SQUARE
                 )
         )       
-    : YAGBAR_INFINITY;
+    : YGR_INFINITY;
 }
 
 IWRAM_CODE 
-YAGBAR_Unit 
+YGR_Unit 
 RENDER_castRay3D(
-    YAGBAR_Vec2       pos1, 
-    YAGBAR_Unit           height1, 
-    YAGBAR_Vec2       pos2, 
-    YAGBAR_Unit           height2,
+    YGR_Vec2       pos1, 
+    YGR_Unit           height1, 
+    YGR_Vec2       pos2, 
+    YGR_Unit           height2,
     RENDER_ArrayFunction  floorHeightFunc, 
     RENDER_ArrayFunction  ceilingHeightFunc,
-    YAGBAR_RayConstraints constraints
+    YGR_RayConstraints constraints
 )
 {
     RENDER_HitResult hits[constraints.max_hits];
     u16 numHits;
 
-    YAGBAR_Ray ray;
+    YGR_Ray ray;
 
     ray.start = pos1;
 
-    YAGBAR_Unit distance;
+    YGR_Unit distance;
 
     ray.direction.x = pos2.x - pos1.x;
     ray.direction.y = pos2.y - pos1.y;
@@ -1500,25 +1479,25 @@ RENDER_castRay3D(
 
     ray.direction = MATH_normalize(ray.direction); 
 
-    YAGBAR_Unit heightDiff = height2 - height1;
+    YGR_Unit heightDiff = height2 - height1;
 
     RENDER_castRayMultiHit(ray,floorHeightFunc,0,hits,&numHits,constraints);
 
-    YAGBAR_Unit result = RENDER_UNITS_PER_SQUARE;
+    YGR_Unit result = RENDER_UNITS_PER_SQUARE;
 
     s16 squareX = MATH_divRoundDown(pos1.x,RENDER_UNITS_PER_SQUARE);
     s16 squareY = MATH_divRoundDown(pos1.y,RENDER_UNITS_PER_SQUARE);
 
-    YAGBAR_Unit startHeight = floorHeightFunc(squareX,squareY);
+    YGR_Unit startHeight = floorHeightFunc(squareX,squareY);
 
     #define checkHits(comp,res) \
     { \
-        YAGBAR_Unit currentHeight = startHeight; \
+        YGR_Unit currentHeight = startHeight; \
         for (u16 i = 0; i < numHits; ++i) \
         { \
         if (hits[i].distance > distance) \
             break;\
-        YAGBAR_Unit h = hits[i].array_value; \
+        YGR_Unit h = hits[i].array_value; \
         if ((currentHeight comp h ? currentHeight : h) \
             comp (height1 +  MATH_fast_div((hits[i].distance * heightDiff), distance))) \
         { \
@@ -1533,7 +1512,7 @@ RENDER_castRay3D(
 
     if (ceilingHeightFunc != 0)
     {
-        YAGBAR_Unit result2 = RENDER_UNITS_PER_SQUARE;
+        YGR_Unit result2 = RENDER_UNITS_PER_SQUARE;
     
         startHeight = ceilingHeightFunc(squareX,squareY);
 
@@ -1554,9 +1533,9 @@ RENDER_castRay3D(
 IWRAM_CODE 
 void 
 RENDER_moveCameraWithCollision(
-    YAGBAR_Camera *camera, 
-    YAGBAR_Vec2 planeOffset,
-    YAGBAR_Unit heightOffset, 
+    YGR_Camera *camera, 
+    YGR_Vec2 planeOffset,
+    YGR_Unit heightOffset, 
     RENDER_ArrayFunction floorHeightFunc,
     RENDER_ArrayFunction ceilingHeightFunc, 
     s8 computeHeight, 
@@ -1568,8 +1547,8 @@ RENDER_moveCameraWithCollision(
     if (movesInPlane || force) {
         s16 xSquareNew, ySquareNew;
 
-        YAGBAR_Vec2 corner; // BBox corner in the movement direction
-        YAGBAR_Vec2 cornerNew;
+        YGR_Vec2 corner; // BBox corner in the movement direction
+        YGR_Vec2 cornerNew;
 
         s16 xDir = planeOffset.x > 0 ? 1 : -1;
         s16 yDir = planeOffset.y > 0 ? 1 : -1;
@@ -1586,10 +1565,10 @@ RENDER_moveCameraWithCollision(
         xSquareNew = MATH_divRoundDown(cornerNew.x,RENDER_UNITS_PER_SQUARE);
         ySquareNew = MATH_divRoundDown(cornerNew.y,RENDER_UNITS_PER_SQUARE);
 
-        YAGBAR_Unit bottomLimit = -1 * YAGBAR_INFINITY;
-        YAGBAR_Unit topLimit = YAGBAR_INFINITY;
+        YGR_Unit bottomLimit = -1 * YGR_INFINITY;
+        YGR_Unit topLimit = YGR_INFINITY;
 
-        YAGBAR_Unit currCeilHeight = YAGBAR_INFINITY;
+        YGR_Unit currCeilHeight = YGR_INFINITY;
 
         if (computeHeight) {
             bottomLimit = camera->height 
@@ -1605,7 +1584,7 @@ RENDER_moveCameraWithCollision(
 // checks a single square for collision against the camera
 #define collCheck(dir,s1,s2)\
     if (computeHeight) { \
-        YAGBAR_Unit height = floorHeightFunc(s1,s2);\
+        YGR_Unit height = floorHeightFunc(s1,s2);\
         if ( \
             height > bottomLimit \
             || currCeilHeight - height \
@@ -1613,7 +1592,7 @@ RENDER_moveCameraWithCollision(
         )\
             dir##Collides = 1;\
         else if (ceilingHeightFunc != 0) { \
-            YAGBAR_Unit height2 = ceilingHeightFunc(s1,s2); \
+            YGR_Unit height2 = ceilingHeightFunc(s1,s2); \
             if ((height2 < topLimit) || ((height2 - height) < \
             (RENDER_CAMERA_COLL_HEIGHT_ABOVE + RENDER_CAMERA_COLL_HEIGHT_BELOW))) \
             dir##Collides = 1; \
@@ -1664,8 +1643,8 @@ RENDER_moveCameraWithCollision(
                 elevators due to vertical only movement. This code can get executed
                 when force == 1. */
 
-                YAGBAR_Vec2 squarePos;
-                YAGBAR_Vec2 newPos;
+                YGR_Vec2 squarePos;
+                YGR_Vec2 newPos;
 
                 squarePos.x = xSquare * RENDER_UNITS_PER_SQUARE;
                 squarePos.y = ySquare * RENDER_UNITS_PER_SQUARE;
@@ -1740,12 +1719,12 @@ RENDER_moveCameraWithCollision(
                 RENDER_UNITS_PER_SQUARE
             );
 
-        YAGBAR_Unit bottomLimit = floorHeightFunc(xSquare1,ySquare1);
-        YAGBAR_Unit topLimit    = (ceilingHeightFunc != 0) 
+        YGR_Unit bottomLimit = floorHeightFunc(xSquare1,ySquare1);
+        YGR_Unit topLimit    = (ceilingHeightFunc != 0) 
                 ? ceilingHeightFunc(xSquare1,ySquare1) 
-                : YAGBAR_INFINITY;
+                : YGR_INFINITY;
 
-        YAGBAR_Unit height;
+        YGR_Unit height;
 
 #define checkSquares(s1,s2)\
     { \
@@ -1753,7 +1732,7 @@ RENDER_moveCameraWithCollision(
         bottomLimit = MATH_max(bottomLimit,height); \
         height      = (ceilingHeightFunc != 0)  \
                 ? ceilingHeightFunc(xSquare##s1,ySquare##s2)  \
-                : YAGBAR_INFINITY;\
+                : YGR_INFINITY;\
         topLimit    = MATH_min(topLimit,height); \
     }
 
@@ -1781,11 +1760,11 @@ void
 RENDER_flip(void)
 {
     VBlankIntrWait();
-
+    
     _RENDER_drawBuf = (_RENDER_page == 0) 
         ? (u16*)MEM_VRAM 
         : (u16*)(MEM_VRAM + 0xA000);
-
+    
     REG_DISPCNT  ^= DCNT_PAGE;
     _RENDER_page ^= 1;
 

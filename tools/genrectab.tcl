@@ -17,7 +17,7 @@ puts "\nconst s32\ndepth_reciprocal[] = {"
 puts "    0x7FFFFFFF,  /* 0: infinity guard */"
 
 for {set i 1} {$i < $SIZE+1} {incr i} {
-    puts "    (YAGBAR_UNITS_PER_SQUARE) / $i,"
+    puts "    (YGR_UNITS_PER_SQUARE) / $i,"
 }
 
 puts "};"

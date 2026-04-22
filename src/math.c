@@ -4,7 +4,7 @@
 
 #if MATH_USE_COS_LUT == 1
 const 
-YAGBAR_Unit 
+YGR_Unit 
 cosLUT[64] =
 {
     1024,1019,1004,979,946,903,851,791,724,649,568,482,391,297,199,100,0,-100,
@@ -15,7 +15,7 @@ cosLUT[64] =
 
 #elif MATH_USE_COS_LUT == 2
 const 
-YAGBAR_Unit 
+YGR_Unit 
 cosLUT[128] =
 {
     1024,1022,1019,1012,1004,993,979,964,946,925,903,878,851,822,791,758,724,
@@ -31,24 +31,24 @@ cosLUT[128] =
 
 
 IWRAM_CODE 
-YAGBAR_Unit 
-MATH_tan(YAGBAR_Unit input)
+YGR_Unit 
+MATH_tan(YGR_Unit input)
 {
-    return MATH_fast_div((MATH_sin(input) * YAGBAR_UNITS_PER_SQUARE), MATH_nonZero(MATH_cos(input)));
+    return MATH_fast_div((MATH_sin(input) * YGR_UNITS_PER_SQUARE), MATH_nonZero(MATH_cos(input)));
 }
 
 IWRAM_CODE 
-YAGBAR_Unit 
-MATH_ctg(YAGBAR_Unit input)
+YGR_Unit 
+MATH_ctg(YGR_Unit input)
 {
-    return MATH_fast_div((MATH_cos(input) * YAGBAR_UNITS_PER_SQUARE), MATH_sin(input));
+    return MATH_fast_div((MATH_cos(input) * YGR_UNITS_PER_SQUARE), MATH_sin(input));
 }
 
 IWRAM_CODE 
-YAGBAR_Vec2 
-MATH_angleToDirection(YAGBAR_Unit angle)
+YGR_Vec2 
+MATH_angleToDirection(YGR_Unit angle)
 {
-    YAGBAR_Vec2 result;
+    YGR_Vec2 result;
 
     result.x = MATH_cos(angle);
     result.y = -1 * MATH_sin(angle);
@@ -58,7 +58,7 @@ MATH_angleToDirection(YAGBAR_Unit angle)
 
 IWRAM_CODE 
 u16 
-MATH_sqrt(YAGBAR_Unit value)
+MATH_sqrt(YGR_Unit value)
 {
     u32 
         result = 0,
@@ -82,10 +82,10 @@ MATH_sqrt(YAGBAR_Unit value)
 }
 
 IWRAM_CODE
-YAGBAR_Unit 
-MATH_dist(YAGBAR_Vec2 p1, YAGBAR_Vec2 p2)
+YGR_Unit 
+MATH_dist(YGR_Vec2 p1, YGR_Vec2 p2)
 {
-    YAGBAR_Unit 
+    YGR_Unit 
         dx = p2.x - p1.x,
         dy = p2.y - p1.y;
 
@@ -99,7 +99,7 @@ MATH_dist(YAGBAR_Vec2 p1, YAGBAR_Vec2 p2)
 #elif MATH_USE_DIST_APPROX == 1
     // more accurate approximation
 
-    YAGBAR_Unit a, b, result;
+    YGR_Unit a, b, result;
 
     dx = ((dx < 0) * 2 - 1) * dx;
     dy = ((dy < 0) * 2 - 1) * dy;
@@ -123,39 +123,13 @@ MATH_dist(YAGBAR_Vec2 p1, YAGBAR_Vec2 p2)
     dx = dx * dx;
     dy = dy * dy;
 
-    return MATH_sqrt((YAGBAR_Unit) (dx + dy));
+    return MATH_sqrt((YGR_Unit) (dx + dy));
 #endif /* MATH_USE_DIST_APPROX */
 }
 
-IWRAM_CODE 
-YAGBAR_Vec2 
-MATH_normalize(YAGBAR_Vec2 v)
-{
-    YAGBAR_Vec2 result;
-    YAGBAR_Unit l = MATH_len(v);
-    l = MATH_nonZero(l);
 
-    result.x = MATH_fast_div((v.x * YAGBAR_UNITS_PER_SQUARE), l);
-    result.y = MATH_fast_div((v.y * YAGBAR_UNITS_PER_SQUARE), l);
 
-    return result;
-}
 
-IWRAM_CODE 
-static inline
-YAGBAR_Unit 
-MATH_vectorsAngleCos(YAGBAR_Vec2 v1, YAGBAR_Vec2 v2)
-{
-    v1 = MATH_normalize(v1);
-    v2 = MATH_normalize(v2);
 
-    return MATH_fast_div((v1.x * v2.x + v1.y * v2.y), YAGBAR_UNITS_PER_SQUARE);
-}
 
-IWRAM_CODE 
-static inline
-YAGBAR_Unit 
-MATH_degreesToUnitsAngle(int16_t degrees)
-{
-    return MATH_fast_div((degrees * YAGBAR_UNITS_PER_SQUARE), 360);
-}
+

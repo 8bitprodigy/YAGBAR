@@ -1,5 +1,5 @@
-#ifndef YAGBAR_CORE_H
-#define YAGBAR_CORE_H
+#ifndef YGR_CORE_H
+#define YGR_CORE_H
 
 
 #include <tonc.h>
@@ -7,80 +7,109 @@
 #include "defs.h"
 
 
+// Log levels
+#define MGBA_LOG_FATAL   0
+#define MGBA_LOG_ERROR   1
+#define MGBA_LOG_WARN    2
+#define MGBA_LOG_INFO    3
+#define MGBA_LOG_DEBUG   4
+
+
+#ifdef DEBUG
+    #define DBG_EXPR( ... )        __VA_ARGS__
+    #define DBG_OUT(  Text, ... )  mgba_printf(MGBA_LOG_DEBUG, Text, ##__VA_ARGS__ )
+    #define ERR_OUT(  Error_Text ) mgba_printf(MGBA_LOG_ERROR, Text, ##__VA_ARGS__ )
+#else
+    #define DBG_EXPR( ... ) 
+    #define DBG_OUT(  Text, ... )
+    #define ERR_OUT(  Error_Text )
+#endif /* DEBUG */
+
+
 /*  Smallest spatial unit, there is
-	YAGBAR_UNITS_PER_SQUARE units in a square's
+	YGR_UNITS_PER_SQUARE units in a square's
 	length. This effectively serves the purpose of
 	a fixed-point arithmetic. */
-typedef s32 YAGBAR_Unit; 
+typedef s32 YGR_Unit; 
 
 /* Position in 2D space. */
 typedef struct
 {
-    YAGBAR_Unit x;
-    YAGBAR_Unit y;
+    YGR_Unit x, y;
 } 
-YAGBAR_Vec2;
+YGR_Vec2;
 
 typedef struct
 {
-    YAGBAR_Vec2 position;
-    YAGBAR_Unit     angle;  
-    YAGBAR_Vec2 resolution;
+    YGR_Vec2 position;
+    YGR_Vec2 resolution;
+    YGR_Unit angle;  
+    YGR_Unit height;
     /*  Shear offset in pixels (0 => no shear), can simulate
         looking up/down. */
-    s16             shear; 
-    YAGBAR_Unit     height;
+    s16         shear; 
 } 
-YAGBAR_Camera;
+YGR_Camera;
 
 typedef struct
 {
-    YAGBAR_Vec2 start;
-    YAGBAR_Vec2 direction;
+    YGR_Vec2 start;
+    YGR_Vec2 direction;
 } 
-YAGBAR_Ray;
+YGR_Ray;
 
 typedef struct
 {
-    u16 max_hits;
-    u16 max_steps;
+    u16 
+        max_hits,
+        max_steps;
 } 
-YAGBAR_RayConstraints;
+YGR_RayConstraints;
 
 typedef struct
 {
-    YAGBAR_Vec2 position;
-    YAGBAR_Unit z;
-    YAGBAR_Unit radius;
-    u8          kind;
-    u8          state;
-    u8          health;
-    u8          armor;
-    u8          target;
-    u8          sprite_index;
+    YGR_Vec2 position;
+    YGR_Unit 
+        z,
+        radius;
+    u16         sprite_index;
+    u8
+        kind,
+        state,
+        health,
+        armor,
+        target;
     union {
         u8 flags;
         struct {
-            bool visible   :1;
-            bool flip_x    :1;
-            bool flip_y    :1;
-            bool fullbright:1;
+            bool 
+                solid     :1,
+                visible   :1,
+                flip_x    :1,
+                flip_y    :1,
+                fullbright:1;
         };
     };
 }
-YAGBAR_Entity;
+YGR_Entity;
 
+
+#ifdef DEBUG
+void 
+YGR_printf(int level, const char* ptr, ...);
+#endif /* DEBUG */
 
 void 
-YAGBAR_initCamera(YAGBAR_Camera *camera);
+YGR_initCamera(YGR_Camera *camera);
 void 
-YAGBAR_initRayConstraints(YAGBAR_RayConstraints *constraints);
-YAGBAR_Unit
-YAGBAR_heightAt(s16 x, s16 y);
+YGR_initRayConstraints(YGR_RayConstraints *constraints);
+
+YGR_Unit
+YGR_heightAt(s16 x, s16 y);
 
 
-extern YAGBAR_Entity YAGBAR_entities[YAGBAR_MAX_ENTITIES];
-extern u8            YAGBAR_entityCount;
+extern YGR_Entity YGR_entities[YGR_MAX_ENTITIES];
+extern u8            YGR_entityCount;
 
 
-#endif /* YAGBAR_CORE_H */
+#endif /* YGR_CORE_H */

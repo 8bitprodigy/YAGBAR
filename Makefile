@@ -40,7 +40,7 @@ ARCH     := -mthumb -mthumb-interwork
 
 CFLAGS   := -g -Wall -O2 -ffast-math -funroll-loops\
 		-mcpu=arm7tdmi -mtune=arm7tdmi\
-		$(ARCH)
+		$(ARCH) #-DDEBUG
 
 CFLAGS   += $(INCLUDE) -I$(DATA) -I$(INCLUDES)
 

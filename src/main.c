@@ -20,7 +20,6 @@
 
 
  
-u8 my_color = 0;
 
 // ---------------------------------------------------------------------------
 // raycastlib callbacks
@@ -30,9 +29,12 @@ u8 my_color = 0;
 /*
 static u16 *drawBuf;
 */
-static u8   show_palette = 0;
-static u8   use_textures = 0;
-static u16 *drawBuf;
+static u16  *drawBuf;
+static u16   pal_backup[256];
+static char  dbg_str[16];
+static u8    show_palette = 0;
+static u8    use_textures = 0;
+static u8    my_color = 0;
 
  
 // Write a single 8-bit palette index into Mode 4 VRAM.
@@ -62,14 +64,14 @@ static inline
 u8
 sampleTexture(
     const unsigned char *tex,
-    YAGBAR_Unit             tx, 
-    YAGBAR_Unit             ty
+    YGR_Unit             tx, 
+    YGR_Unit             ty
 )
 {
     const u8 w = 64;
     const u8 h = 64;
-    tx = MATH_wrap(tx, YAGBAR_UNITS_PER_SQUARE);
-    ty = MATH_wrap(ty, YAGBAR_UNITS_PER_SQUARE);
+    tx = MATH_wrap(tx, YGR_UNITS_PER_SQUARE);
+    ty = MATH_wrap(ty, YGR_UNITS_PER_SQUARE);
     register s16 px = (w * tx) >> 10;
     register s16 py = (h * ty) >> 10;
     return tex[2 + h * px + py];
@@ -81,9 +83,9 @@ IWRAM_CODE
 static inline
 void 
 flatColumnFunc(
-    YAGBAR_Unit x, 
-    YAGBAR_Unit yStart, 
-    YAGBAR_Unit yEnd, 
+    YGR_Unit x, 
+    YGR_Unit yStart, 
+    YGR_Unit yEnd, 
     u8       isFloor
 )
 {
@@ -117,17 +119,19 @@ flatColumnFunc(
 
 void initEntities(void)
 {
-    YAGBAR_entityCount = 2;
+    YGR_entityCount = 2;
 
-    YAGBAR_entities[0].position.x = 3 * YAGBAR_UNITS_PER_SQUARE;
-    YAGBAR_entities[0].position.y = 3 * YAGBAR_UNITS_PER_SQUARE;
-    YAGBAR_entities[0].sprite_index = 0;
-    YAGBAR_entities[0].flags = 0;
+    YGR_entities[0].position.x   = 3 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[0].position.y   = 3 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[0].z            = YGR_UNITS_PER_SQUARE - 256;
+    YGR_entities[0].sprite_index = 0;
+    YGR_entities[0].flags = 0;
 
-    YAGBAR_entities[1].position.x = 5 * YAGBAR_UNITS_PER_SQUARE;
-    YAGBAR_entities[1].position.y = 5 * YAGBAR_UNITS_PER_SQUARE;
-    YAGBAR_entities[1].sprite_index = 1;
-    YAGBAR_entities[1].flags = 0;
+    YGR_entities[1].position.x   = 5 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[1].position.y   = 5 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[1].z            = YGR_UNITS_PER_SQUARE - 256;
+    YGR_entities[1].sprite_index = 1;
+    YGR_entities[1].flags = 0;
 }
  
 // ---------------------------------------------------------------------------
@@ -211,60 +215,62 @@ drawPalette(void)
 // Input helpers
 // ---------------------------------------------------------------------------
 static void 
-handleInput(YAGBAR_Camera *cam)
+handleInput(YGR_Camera *cam)
 {
     key_poll();
  
-    YAGBAR_Unit dx = 0, dy = 0;
+    YGR_Unit dx = 0, dy = 0;
  
-    // Strafe (shoulder buttons)
+    // Strafe
     if (key_is_down(KEY_LEFT)) {
-        dy =  MATH_cos(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
-        dx =  MATH_sin(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
+        dy +=  MATH_cos(cam->angle) / (YGR_UNITS_PER_SQUARE / MOVE_SPEED);
+        dx +=  MATH_sin(cam->angle) / (YGR_UNITS_PER_SQUARE / MOVE_SPEED);
     }
     if (key_is_down(KEY_RIGHT)) {
         // Strafe right: rotate movement vector 90 degrees
-        dy = -MATH_cos(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
-        dx = -MATH_sin(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
+        dy += -MATH_cos(cam->angle) / (YGR_UNITS_PER_SQUARE / MOVE_SPEED);
+        dx += -MATH_sin(cam->angle) / (YGR_UNITS_PER_SQUARE / MOVE_SPEED);
     }
- 
     // Forward / backward
     if (key_is_down(KEY_DOWN)) {
-        dy =  MATH_sin(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
-        dx = -MATH_cos(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
+        dy +=  MATH_sin(cam->angle) / (YGR_UNITS_PER_SQUARE / MOVE_SPEED);
+        dx += -MATH_cos(cam->angle) / (YGR_UNITS_PER_SQUARE / MOVE_SPEED);
     }
     if (key_is_down(KEY_UP)) {
-        dy = -MATH_sin(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
-        dx =  MATH_cos(cam->angle) / (YAGBAR_UNITS_PER_SQUARE / MOVE_SPEED);
+        dy += -MATH_sin(cam->angle) / (YGR_UNITS_PER_SQUARE / MOVE_SPEED);
+        dx +=  MATH_cos(cam->angle) / (YGR_UNITS_PER_SQUARE / MOVE_SPEED);
     }
- 
+
+    // Look up/down
+    if (key_is_down(KEY_L)) cam->shear-=TURN_SPEED>>1;
+    if (key_is_down(KEY_R)) cam->shear+=TURN_SPEED>>1;
+    cam->shear = MATH_clamp(cam->shear, -YGR_UNITS_PER_SQUARE >> 3, YGR_UNITS_PER_SQUARE >> 3);
+    
     // Turn
     if (key_is_down(KEY_B)) cam->angle -= TURN_SPEED;
     if (key_is_down(KEY_A)) cam->angle += TURN_SPEED;
-
-    if (key_is_down(KEY_L)) my_color--;
-    if (key_is_down(KEY_R)) my_color++;
-
+    
+    // Toggles
     if (key_hit(KEY_SELECT)) show_palette = !show_palette;
     if (key_hit(KEY_START))  use_textures = !use_textures;
  
     // Collision check: only move if destination square is open
     if (dx || dy)
     {
-        int nx = MATH_divRoundDown(cam->position.x + dx, YAGBAR_UNITS_PER_SQUARE);
-        int ny = MATH_divRoundDown(cam->position.y + dy, YAGBAR_UNITS_PER_SQUARE);
-        int cx = MATH_divRoundDown(cam->position.x,       YAGBAR_UNITS_PER_SQUARE);
-        int cy = MATH_divRoundDown(cam->position.y,       YAGBAR_UNITS_PER_SQUARE);
+        int nx = MATH_divRoundDown(cam->position.x + dx, YGR_UNITS_PER_SQUARE);
+        int ny = MATH_divRoundDown(cam->position.y + dy, YGR_UNITS_PER_SQUARE);
+        int cx = MATH_divRoundDown(cam->position.x,       YGR_UNITS_PER_SQUARE);
+        int cy = MATH_divRoundDown(cam->position.y,       YGR_UNITS_PER_SQUARE);
  
         // Allow sliding: try combined move first, then each axis separately
-        if (YAGBAR_heightAt(nx, ny) == 0) {
+        if (YGR_heightAt(nx, ny) == 0) {
             cam->position.x += dx;
             cam->position.y += dy;
         }
-        else if (YAGBAR_heightAt(nx, cy) == 0) {
+        else if (YGR_heightAt(nx, cy) == 0) {
             cam->position.x += dx;
         }
-        else if (YAGBAR_heightAt(cx, ny) == 0) {
+        else if (YGR_heightAt(cx, ny) == 0) {
             cam->position.y += dy;
         }
     }
@@ -279,31 +285,31 @@ main(void)
     irq_init(NULL);
     irq_add(II_VBLANK, NULL);
     // --- Video mode 4, BG2 enabled, page-flip capable ---
-    REG_DISPCNT = DCNT_MODE4 | DCNT_BG2;
+    REG_DISPCNT = DCNT_MODE4 | DCNT_BG2 | DCNT_OBJ;
     setupPalette();
 
 #if DEBUG_PROFILE
-    tte_init_bmp(
-        4,
-        NULL,
-        NULL 
-    );
-    tte_init_con();
+    txt_init_std();
+    txt_init_obj(&oam_mem[0], 0xF200, CLR_YELLOW, 0xEE);
+    gptxt->dx = 8;
+    OBJ_ATTR *oe = oam_mem;
+    siprintf(dbg_str, "%10u", 1234);
+    obj_puts2(0, 0, dbg_str, 0xF200, oe);
 #endif /* DEBUG_PROFILE */
     
     // Camera initial state
-    YAGBAR_Camera camera;
-    YAGBAR_initCamera(&camera);
-    camera.position.x   = 2 * YAGBAR_UNITS_PER_SQUARE + (YAGBAR_UNITS_PER_SQUARE >> 1);
-    camera.position.y   = 2 * YAGBAR_UNITS_PER_SQUARE + (YAGBAR_UNITS_PER_SQUARE >> 1);
+    YGR_Camera camera;
+    YGR_initCamera(&camera);
+    camera.position.x   = 2 * YGR_UNITS_PER_SQUARE + (YGR_UNITS_PER_SQUARE >> 1);
+    camera.position.y   = 2 * YGR_UNITS_PER_SQUARE + (YGR_UNITS_PER_SQUARE >> 1);
     camera.angle        = 0;
     camera.resolution.x = RENDER_W;
     camera.resolution.y = SCREEN_H;
     camera.height       = CAMERA_HEIGHT;
  
     // Ray constraints
-    YAGBAR_RayConstraints rc;
-    YAGBAR_initRayConstraints(&rc);
+    YGR_RayConstraints rc;
+    YGR_initRayConstraints(&rc);
     rc.max_hits  = 1;
     rc.max_steps = 40;
 
@@ -315,6 +321,7 @@ main(void)
     u32 frame = 0;
 */
     initEntities();
+    
 #if DEBUG_PROFILE
     profile_start();
 #endif /* DEBUG_PROFILE */
@@ -343,15 +350,14 @@ main(void)
         // Render scene into drawBuf via pixelFunc callback
         
         if (show_palette) drawPalette();
-        else RENDER_renderSimple(camera, YAGBAR_heightAt, 0, 0, rc);
+        else RENDER_renderSimple(&camera, YGR_heightAt, 0, 0, rc);
 
-#if DEBUG_PROFILE
         uint cycles = profile_stop();
-        tte_init_bmp(4, NULL, NULL);
-        tte_set_pos(0, 0);
-        tte_printf("#{P:8,8}%i", cycles);
-        profile_start();
+#if DEBUG_PROFILE
+    siprintf(dbg_str, "%10u", cycles);
+    obj_puts2(0, 0, dbg_str, 0xF200, oe);
 #endif /* DEBUG_PROFILE */
+        profile_start();
 
         // Wait for VBlank, then flip pages
         RENDER_flip();

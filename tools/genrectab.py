@@ -6,7 +6,7 @@ print('#include "reciprocal_table.h"\n')
 print("\nconst s32\ndepth_reciprocal[] = {")
 print("    0x7FFFFFFF,  /* 0: infinity guard */")
 for i in range(1, SIZE):
-    print(f"    (YAGBAR_UNITS_PER_SQUARE) / {i},")
+    print(f"    (YGR_UNITS_PER_SQUARE) / {i},")
 print("};")
 print("\nconst s32\ndepth_reciprocal_65536[] = {")
 print("    0x7FFFFFFF,")

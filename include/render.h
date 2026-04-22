@@ -1,5 +1,5 @@
-#ifndef YAGBAR_RENDER_H
-#define YAGBAR_RENDER_H
+#ifndef YGR_RENDER_H
+#define YGR_RENDER_H
 
 
 #include <tonc.h>
@@ -92,13 +92,13 @@
     #define RENDER_CAMERA_COLL_STEP_HEIGHT (RENDER_UNITS_PER_SQUARE  >> 1)
 #endif
 
-#ifndef RENDER_TEXTURE_INTERPOLATION_SCALE
+#ifndef RENDER_TEXTURE_INTERPOLATION_SHIFT
     /*  This says scaling of fixed
         point vertical texture coord
         computation. This should be power
         of two! Higher number can look more 
         accurate but may cause overflow. */
-    #define RENDER_TEXTURE_INTERPOLATION_SCALE 1024 
+    #define RENDER_TEXTURE_INTERPOLATION_SHIFT 10 
 #endif
 
 /*  What depth the
@@ -127,29 +127,29 @@
 *******************************************************************************/
 typedef struct
 {
+    /*  Collided square coordinates. */
+    YGR_Vec2 square;   
+    /*  Exact collision position in YGR_Units. */
+    YGR_Vec2 position;  
     /*  Distance to the hit position, or -1 if no collision happened. If 
         RENDER_RECTILINEAR != 0, then the distance is perpendicular to the 
         projection plane (fish eye correction), otherwise it is the straight 
         distance to the ray start position. */
-    YAGBAR_Unit     distance; 
-    /*  Direction of hit. The convention for angle units is explained above. */
-    u8              direction;    
-    /*  Normalized (0 to YAGBAR_UNITS_PER_SQUARE - 1) texture coordinate 
+    YGR_Unit distance; 
+    /*  Normalized (0 to YGR_UNITS_PER_SQUARE - 1) texture coordinate 
         (horizontal). */
-    YAGBAR_Unit     texture_coord; 
-    /*  Collided square coordinates. */
-    YAGBAR_Vec2 square;   
-    /*  Exact collision position in YAGBAR_Units. */
-    YAGBAR_Vec2 position;  
+    YGR_Unit texture_coord; 
     /*  Value returned by array function (most often this will be the floor 
         height). */   
-    YAGBAR_Unit     array_value;  
+    YGR_Unit array_value;  
     /*  Integer identifying type of square (number
         returned by type function, e.g. texture
         index).*/ 
-    YAGBAR_Unit     type;
+    YGR_Unit type;
     /*  Holds value of door roll. */
-    YAGBAR_Unit     doorRoll;
+    YGR_Unit doorRoll;
+    /*  Direction of hit. The convention for angle units is explained above. */
+    u8       direction;    
 } 
 RENDER_HitResult;
 
@@ -158,17 +158,24 @@ RENDER_HitResult;
 */
 typedef struct
 {
-    YAGBAR_Vec2  position;    // < On-screen position.
-    s8               is_wall;     // < Whether the pixel is a wall or a floor/ceiling.
-    s8               is_floor;    // < Whether the pixel is floor or ceiling.
-    s8               is_horizon;  // < If the pixel belongs to horizon segment.
-    YAGBAR_Unit      depth;       // < Corrected depth.
-    YAGBAR_Unit      wall_height; // < Only for wall pixels, says its height.
-    YAGBAR_Unit      height;      // < World height (mostly for floor).
-    RENDER_HitResult hit;         // < Corresponding ray hit.
-    /*  Normalized (0 to YAGBAR_UNITS_PER_SQUARE - 1)
+    RENDER_HitResult  hit;         // < Corresponding ray hit.
+    YGR_Vec2          position;    // < On-screen position.
+    /*  Normalized (0 to YGR_UNITS_PER_SQUARE - 1)
         texture coordinates. */
-    YAGBAR_Vec2  texCoords; 
+    YGR_Vec2          texCoords; 
+    YGR_Unit          depth;       // < Corrected depth.
+    YGR_Unit          wall_height; // < Only for wall pixels, says its height.
+    YGR_Unit          height;      // < World height (mostly for floor).
+    u16              *destination; // < Destination address for pixel (precalculated).
+    union {
+        u8 flags;
+        struct {
+            bool
+                is_wall   :1,  // < Whether the pixel is a wall or a floor/ceiling.
+                is_floor  :1,  // < Whether the pixel is floor or ceiling.
+                is_horizon:1;  // < If the pixel belongs to horizon segment.
+        };
+    };
 } 
 RENDER_PixelInfo;
 
@@ -185,14 +192,14 @@ RENDER_PixelInfo;
     This function should be as fast as possible as it will typically be called
     very often.
 */ 
-typedef YAGBAR_Unit (*RENDER_ArrayFunction)(s16 x, s16 y);
+typedef YGR_Unit (*RENDER_ArrayFunction)(s16 x, s16 y);
 /*
     TODO: maybe array functions should be replaced by defines of funtion names
     like with pixelFunc? Could be more efficient than function pointers.
 */
 
 /*  Function that renders a single pixel at the display. It is handed an info
-    about the pixel it should draw.
+    about the pixel it should kz;;draw.
 
     This function should be as fast as possible as it will typically be called
     very often.
@@ -202,53 +209,42 @@ typedef void (*RENDER_ColumnFunction)(
     RENDER_HitResult *hits, 
     u16               hit_count, 
     u16               x,
-    YAGBAR_Ray        ray
+    YGR_Ray        ray
 );
 
-
-IWRAM_CODE static inline void RENDER_PIXEL_FUNCTION(RENDER_PixelInfo *pixel);
-IWRAM_CODE static inline void RENDER_COLUMN_FUNCTION(
-    YAGBAR_Unit x, 
-    YAGBAR_Unit y_start, 
-    YAGBAR_Unit y_end, 
-    u8          is_floor
-);
-IWRAM_CODE inline YAGBAR_Unit RENDER_RS_HEIGHT_FN(s16 x, s16 y);
 
 /*  Simple-interface function to cast a single ray.
 
     @return          The first collision result.
 */
-static inline
 RENDER_HitResult 
-RENDER_castRay(YAGBAR_Ray ray, RENDER_ArrayFunction array_func);
+RENDER_castRay(YGR_Ray ray, RENDER_ArrayFunction array_func);
 
 /*  Casts a 3D ray in 3D environment with floor and optional ceiling
     (ceilingHeightFunc can be 0). This can be useful for hitscan shooting,
     visibility checking etc.
 
-    @return normalized ditance (0 to YAGBAR_UNITS_PER_SQUARE) along the ray at which
-        the environment was hit, YAGBAR_UNITS_PER_SQUARE means nothing was hit
+    @return normalized ditance (0 to YGR_UNITS_PER_SQUARE) along the ray at which
+        the environment was hit, YGR_UNITS_PER_SQUARE means nothing was hit
 */
-YAGBAR_Unit 
+YGR_Unit 
 RENDER_castRay3D(
-    YAGBAR_Vec2       pos1, 
-    YAGBAR_Unit           height1, 
-    YAGBAR_Vec2       pos2, 
-    YAGBAR_Unit           height2,
+    YGR_Vec2       pos1, 
+    YGR_Unit           height1, 
+    YGR_Vec2       pos2, 
+    YGR_Unit           height2,
     RENDER_ArrayFunction  floor_height_func, 
     RENDER_ArrayFunction  ceiling_height_func,
-    YAGBAR_RayConstraints constraints
+    YGR_RayConstraints constraints
 );
 
 /* Maps a single point in the world to the screen (2D position + depth).
 */
-inline
 RENDER_PixelInfo 
 RENDER_mapToScreen(
-    YAGBAR_Vec2 world_position, 
-    YAGBAR_Unit     height,
-    YAGBAR_Camera   camera
+    YGR_Vec2 world_position, 
+    YGR_Unit     height,
+    YGR_Camera   camera
 );
 
 /*  Casts a single ray and returns a list of collisions.
@@ -270,77 +266,29 @@ RENDER_mapToScreen(
         returned
     @param constraints specifies constraints for the ray cast
 */
-inline 
 void 
 RENDER_castRayMultiHit(
-    YAGBAR_Ray             ray, 
+    YGR_Ray                ray, 
     RENDER_ArrayFunction   array_func,
     RENDER_ArrayFunction   type_func, 
     RENDER_HitResult      *hit_results,
     u16                   *hit_results_len, 
-    YAGBAR_RayConstraints  constraints
+    YGR_RayConstraints     constraints
 );
 
 ///< Computes the change in size of an object due to perspective (vertical FOV).
-YAGBAR_Unit 
-RENDER_perspectiveScaleVertical(         YAGBAR_Unit original_size, YAGBAR_Unit distance);
+YGR_Unit 
+RENDER_perspectiveScaleVertical(         YGR_Unit original_size, YGR_Unit distance);
 
-YAGBAR_Unit 
-RENDER_perspectiveScaleVerticalInverse(  YAGBAR_Unit original_size, YAGBAR_Unit scaled_size);
+YGR_Unit 
+RENDER_perspectiveScaleVerticalInverse(  YGR_Unit original_size, YGR_Unit scaled_size);
 
-YAGBAR_Unit
-RENDER_perspectiveScaleHorizontal(       YAGBAR_Unit original_size, YAGBAR_Unit distance);
+YGR_Unit
+RENDER_perspectiveScaleHorizontal(       YGR_Unit original_size, YGR_Unit distance);
 
-YAGBAR_Unit 
-RENDER_perspectiveScaleHorizontalInverse(YAGBAR_Unit original_size, YAGBAR_Unit scaled_size);
+YGR_Unit 
+RENDER_perspectiveScaleHorizontalInverse(YGR_Unit original_size, YGR_Unit scaled_size);
 
-/*  Casts rays for given camera view and for each hit calls a user provided
-    function.
-*/
-void 
-RENDER_castRaysMultiHit(
-    YAGBAR_Camera         cam, 
-    RENDER_ArrayFunction  array_func,
-    RENDER_ArrayFunction  type_function, 
-    RENDER_ColumnFunction column_func,
-    YAGBAR_RayConstraints constraints
-);
-
-
-/*  Using provided functions, renders a complete complex (multilevel) camera
-    view.
-
-    This function should render each screen pixel exactly once.
-
-    function rendering summary:
-        - performance:            slower
-        - accuracy:               higher
-        - wall textures:          yes
-        - different wall heights: yes
-        - floor/ceiling textures: no
-        - floor geometry:         yes, multilevel
-        - ceiling geometry:       yes (optional), multilevel
-        - rolling door:           no
-        - camera shearing:        yes
-        - rendering order:        left-to-right, not specifically ordered vertically
-
-    @param cam camera whose view to render
-    @param floorHeightFunc function that returns floor height (in YAGBAR_Units)
-    @param ceilingHeightFunc same as floorHeightFunc but for ceiling, can also 
-        be 0 (no ceiling will be rendered)
-    @param typeFunction function that says a type of square (e.g. its texture
-        index), can be 0 (no type in hit result)
-    @param pixelFunc callback function to draw a single pixel on screen
-    @param constraints constraints for each cast ray
-*/
-void 
-RENDER_renderComplex(
-    YAGBAR_Camera         cam, 
-    RENDER_ArrayFunction  floor_height_func,
-    RENDER_ArrayFunction  ceiling_height_func, 
-    RENDER_ArrayFunction  type_function,
-    YAGBAR_RayConstraints constraints
-);
 
 /*  Renders given camera view, with help of provided functions. This function is
     simpler and faster than RENDER_renderComplex(...) and is meant to be rendering
@@ -363,17 +311,17 @@ RENDER_renderComplex(
     This function should render each screen pixel exactly once.
 
     @param rollFunc function that for given square says its door roll in
-        YAGBAR_Units (0 = no roll, YAGBAR_UNITS_PER_SQUARE = full roll right,
-        -YAGBAR_UNITS_PER_SQUARE = full roll left), can be zero (no rolling door,
+        YGR_Units (0 = no roll, YGR_UNITS_PER_SQUARE = full roll right,
+        -YGR_UNITS_PER_SQUARE = full roll left), can be zero (no rolling door,
         rendering should also be faster as fewer intersections will be tested)
 */
 void 
 RENDER_renderSimple(
-  YAGBAR_Camera         cam, 
+  YGR_Camera           *cam, 
   RENDER_ArrayFunction  floorHeightFunc,
   RENDER_ArrayFunction  typeFunc, 
   RENDER_ArrayFunction  rollFunc,
-  YAGBAR_RayConstraints constraints
+  YGR_RayConstraints    constraints
 );
 
 /*  Function that moves given camera and makes it collide with walls and
@@ -395,9 +343,9 @@ RENDER_renderSimple(
 */
 void 
 RENDER_moveCameraWithCollision(
-    YAGBAR_Camera        *camera, 
-    YAGBAR_Vec2       planeOffset,
-    YAGBAR_Unit           heightOffset, 
+    YGR_Camera           *camera, 
+    YGR_Vec2              planeOffset,
+    YGR_Unit              heightOffset, 
     RENDER_ArrayFunction  floorHeightFunc,
     RENDER_ArrayFunction  ceilingHeightFunc, 
     s8                    compute_height, 
@@ -412,7 +360,4 @@ u16 *
 RENDER_getDrawBuffer(void);
 
 
-
-
-
-#endif /* YAGBAR_RENDER_H */
+#endif /* YGR_RENDER_H */

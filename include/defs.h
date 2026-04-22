@@ -2,34 +2,37 @@
 #define DEFS_H
 
 
+#include <stdint.h>
+
 /*******************************************************************************
 	CORE CONSTANTS / FLAGS
 *******************************************************************************/
-#ifndef YAGBAR_MAX_ENTITIES
-	#define YAGBAR_MAX_ENTITIES 256
+#ifndef YGR_MAX_ENTITIES
+	#define YGR_MAX_ENTITIES 256
 #endif
 
-#ifndef YAGBAR_BITS_PRECISION
-	#define YAGBAR_BITS_PRECISION (10)
+#ifndef YGR_BITS_PRECISION
+	#define YGR_BITS_PRECISION (10)
 #endif
-/*  Number of YAGBAR_Units in a side of a
+/*  Number of YGR_Units in a side of a
 	spatial square, i.e. the fixed point
 	scaling. */
-#define YAGBAR_UNITS_PER_SQUARE (1 << YAGBAR_BITS_PRECISION) 
+#define YGR_UNITS_PER_SQUARE (1 << YGR_BITS_PRECISION) 
 
-#define YAGBAR_INFINITY 2000000000
-#define YAGBAR_U        YAGBAR_UNITS_PER_SQUARE ///< shorthand for YAGBAR_UNITS_PER_SQUARE
-
+#define YGR_INFINITY 0x7FFFFFFF
+#define YGR_U        YGR_UNITS_PER_SQUARE ///< shorthand for YGR_UNITS_PER_SQUARE
+#define YGR_MAX_SPRITE_WIDTH  64
+#define YGR_MAX_SPRITE_HEIGHT 64
 
 /*******************************************************************************
 	RENDER CONSTANTS / FLAGS
 *******************************************************************************/
 #define RENDER_PIXEL_FUNCTION             pixelFunc
 //#define RENDER_COLUMN_FUNCTION            flatColumnFunc
-#define RENDER_RS_HEIGHT_FN               YAGBAR_heightAt
-#define RENDER_COMPUTE_FLOOR_DEPTH        0
-#define RENDER_COMPUTE_CEILING_DEPTH      0
-#define RENDER_COMPUTE_FLOOR_TEXCOORDS    0
+#define RENDER_RS_HEIGHT_FN               YGR_heightAt
+#define RENDER_COMPUTE_FLOOR_DEPTH        1
+#define RENDER_COMPUTE_CEILING_DEPTH      1
+#define RENDER_COMPUTE_FLOOR_TEXCOORDS    1
 #define RENDER_UNIT_DIVISOR_NUM_SHIFTS   (0)
 #define RENDER_UNITS_PER_SQUARE          (1024 >> RENDER_UNIT_DIVISOR_NUM_SHIFTS)
 #define RENDER_HORIZONTAL_FOV            (RENDER_UNITS_PER_SQUARE / 4)
@@ -46,8 +49,9 @@
 #define DEPTH_RECIPROCAL_SIZE        1024
 
 
-#define DEBUG_PROFILE        0
+#define DEBUG_PROFILE        1
 #define WALLS_TEXTURED       1
+#define DEPTH_SHADE_SPRITES  0
 #define DEPTH_SHADE_WALLS    0
 #define DEPTH_SHADE_FLOOR    0
 #define DEPTH_SHADE_CEILING  0
@@ -65,10 +69,10 @@
 /*******************************************************************************
 	Screen / GBA constants
 *******************************************************************************/
-#define RENDER_W      120
 #define SCREEN_W      240
 #define SCREEN_H      160
-#define CAMERA_HEIGHT ((YAGBAR_UNITS_PER_SQUARE >> 3) * 10)
+#define RENDER_W      (120)
+#define CAMERA_HEIGHT ((YGR_UNITS_PER_SQUARE >> 3) * 10)
 #define TURN_SPEED    (16 >> RENDER_UNIT_DIVISOR_NUM_SHIFTS)   // RENDER angle units per frame
 #define MOVE_SPEED    (192 >> RENDER_UNIT_DIVISOR_NUM_SHIFTS)   // RENDER sub-units per frame  (~0.3 squares)
 

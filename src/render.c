@@ -11,14 +11,18 @@
 
 
 IWRAM_CODE static inline void RENDER_PIXEL_FUNCTION(RENDER_PixelInfo *pixel);
+
 #ifdef RENDER_COLUMN_FUNCTION
-IWRAM_CODE static inline void RENDER_COLUMN_FUNCTION(
+IWRAM_CODE 
+static inline void 
+RENDER_COLUMN_FUNCTION(
     YGR_Unit x, 
     YGR_Unit y_start, 
     YGR_Unit y_end, 
     u8          is_floor
 );
 #endif /* RENDER_COLUMN_FUNCTION */
+
 IWRAM_CODE YGR_Unit RENDER_RS_HEIGHT_FN(s16 x, s16 y);
 
 
@@ -28,27 +32,28 @@ IWRAM_CODE YGR_Unit RENDER_RS_HEIGHT_FN(s16 x, s16 y);
 static u8                    _RENDER_visibleSprites[RENDER_NUM_VISIBLE_SPRITES];
 static YGR_Unit              _RENDER_spriteDist[RENDER_NUM_VISIBLE_SPRITES];
 static u8                    _RENDER_spriteCount;
-static YGR_Unit              _RENDER_depthBuf[2][RENDER_W]   = {0};
-static u8                    _RENDER_wallTopBuf[2][RENDER_W] = {0};
-static u8                    _RENDER_wallBotBuf[2][RENDER_W] = {0};
-static YGR_Camera           *_RENDER_camera;
-static YGR_Unit              _RENDER_horizontalDepthStep     = 0; 
-static YGR_Unit              _RENDER_startFloorHeight        = 0;
-static YGR_Unit              _RENDER_startCeil_Height        = 0;
-static YGR_Unit              _RENDER_camResYLimit            = 0;
-static YGR_Unit              _RENDER_middleRow               = 0;
-static RENDER_ArrayFunction  _RENDER_floorFunction           = 0;
-static RENDER_ArrayFunction  _RENDER_ceilFunction            = 0;
-static YGR_Unit              _RENDER_fHorizontalDepthStart   = 0;
-static YGR_Unit              _RENDER_cHorizontalDepthStart   = 0;
-static s16                   _RENDER_cameraHeightScreen      = 0;
-static RENDER_ArrayFunction  _RENDER_rollFunction            = 0; // says door rolling
-static YGR_Unit             *_RENDER_floorPixelDistances     = 0;
-static YGR_Unit              _RENDER_fovCorrectionFactors[2] = {0,0}; //correction for hor/vert fov
-static YGR_Unit              _RENDER_fovScale                = 0;
-static u32                   _RENDER_frame                   = 0;
-static u16                  *_RENDER_drawBuf;
-static u8                    _RENDER_page                    = 0;
+static YGR_Unit              _RENDER_depthBuf[2][RENDER_W]     = {0};
+static u8                    _RENDER_wallTopBuf[2][RENDER_W]   = {0};
+static u8                    _RENDER_wallBotBuf[2][RENDER_W]   = {0};
+static s8                    _RENDER_flatShadeBuf[2][SCREEN_H] = {0};
+static YGR_Camera           *_RENDER_camera                    = NULL;
+static RENDER_ArrayFunction  _RENDER_floorFunction             = NULL;
+static RENDER_ArrayFunction  _RENDER_ceilFunction              = NULL;
+static RENDER_ArrayFunction  _RENDER_rollFunction              = NULL; // says door rolling
+static YGR_Unit             *_RENDER_floorPixelDistances       = NULL;
+static u16                  *_RENDER_drawBuf                   = NULL;
+static YGR_Unit              _RENDER_horizontalDepthStep       = 0; 
+static YGR_Unit              _RENDER_startFloorHeight          = 0;
+static YGR_Unit              _RENDER_startCeil_Height          = 0;
+static YGR_Unit              _RENDER_camResYLimit              = 0;
+static u8                    _RENDER_middleRow                 = 0;
+static YGR_Unit              _RENDER_fHorizontalDepthStart     = 0;
+static YGR_Unit              _RENDER_cHorizontalDepthStart     = 0;
+static s16                   _RENDER_cameraHeightScreen        = 0;
+static YGR_Unit              _RENDER_fovCorrectionFactors[2]   = {0,0}; //correction for hor/vert fov
+static YGR_Unit              _RENDER_fovScale                  = 0;
+static u32                   _RENDER_frame                     = 0;
+static u8                    _RENDER_page                      = 0;
 
 
 static inline 
@@ -68,6 +73,8 @@ RENDER_init(void)
         /* Hang on failure */
     };
 #endif /* DEBUG */
+    _RENDER_drawBuf = (u16*)(MEM_VRAM + 0xA000);;
+    
     for (int i = 0; i < 2; i++) {
         for (int j = 0; j < RENDER_W; j++) {
             _RENDER_depthBuf[i][j]   = YGR_INFINITY;
@@ -130,7 +137,7 @@ sortSprites()
 
 IWRAM_CODE
 static void
-drawSprites()
+_RENDER_drawSprites()
 {
     sortSprites();
 
@@ -256,7 +263,7 @@ drawSprites()
         }
         else {
             /* When the sprite is magnified */
-            for (s16 sy = draw_y0; sy < draw_y1; sy++) {
+            for (s16 sy = draw_y0; sy <= draw_y1; sy++) {
                 if (sy < 0 || sy >= RH) continue;
                 u8 ty = (u8)(((s32)(sy - draw_y0) * spr_h * rcp_h) >> 10);
                 s16 sx = sx0;
@@ -266,11 +273,11 @@ drawSprites()
                     u8 
                         tx = (u8)(((s32)(sx - draw_x0) * spr_w * rcp_w) >> 10),
                         color   = texture[ty * spr_w + tx];
-                    s16 run_end = sx + texel_w;
+                    s16 run_end = MATH_clamp(sx + texel_w, 0, RENDER_W);
                     if (color != RENDER_PAL_TRANSPARENT) {
                         register u16 word  = color | (color << 8);
                         register u16 *addr = drawAddr + sx;
-                        register u16 *end  = addr + (run_end - sx);
+                        register u16 *end  = addr + run_end - sx;
                         while (addr < end)
                             *addr++ = word;
                     }
@@ -306,8 +313,14 @@ drawSprites()
         draw_y0 = MATH_clamp(draw_y0, 0, SCREEN_H);
         draw_y1 = MATH_clamp(draw_y1, 0, SCREEN_H);
         for (u8 sx = sx0; sx <= sx1; sx++) {
-            _RENDER_wallTopBuf[_RENDER_page][sx] = draw_y0;
-            _RENDER_wallBotBuf[_RENDER_page][sx] = draw_y1;
+            _RENDER_wallTopBuf[_RENDER_page][sx] = MATH_min(
+                    draw_y0, 
+                    _RENDER_wallTopBuf[_RENDER_page][sx]
+                );
+            _RENDER_wallBotBuf[_RENDER_page][sx] = MATH_max(
+                    draw_y1,
+                    _RENDER_wallBotBuf[_RENDER_page][sx]
+                );
         }
     }
 }
@@ -381,7 +394,7 @@ pixelFunc(RENDER_PixelInfo *p)
     }
     else if (p->is_floor) {
     #if TEXTURED_FLOOR
-        color = sampleTexture(ceil_tex, p->texCoords.x, p->texCoords.y);
+        color = sampleTexture(floor_tex, p->texCoords.x, p->texCoords.y);
     #elif COLORED_FLOOR
         register s16 tile_x = p->texCoords.x >> 10;
         register s16 tile_y = p->texCoords.y >> 10;
@@ -796,14 +809,8 @@ _RENDER_columnFunction(
         _RENDER_wallTopBuf[_RENDER_page][x] = MATH_clamp(wallStart, 0, _RENDER_camResYLimit);
         _RENDER_wallBotBuf[_RENDER_page][x] = MATH_clamp(wallEnd,   0, _RENDER_camResYLimit);
     }
-    // draw ceiling
-#ifdef RENDER_COLUMN_FUNCTION
-    u8 prev_top = _RENDER_wallTopBuf[_RENDER_page][x];
-    if (wallStart < prev_top)
-        RENDER_COLUMN_FUNCTION(x, wallStart, prev_top - 1, 0);
-    y = wallStart;
-#else
-
+    
+    /* Draw ceiling */
     p.is_wall = 0;
     p.is_floor = 0;
     p.is_horizon = 1;
@@ -811,14 +818,13 @@ _RENDER_columnFunction(
     p.height = RENDER_UNITS_PER_SQUARE;
     
     u8 prev_top = MATH_clamp(_RENDER_wallTopBuf[_RENDER_page][x], 0, SCREEN_H);
-    YGR_Unit clampedWallStart = MATH_clamp(wallStart, 0, _RENDER_camResYLimit);
-    YGR_Unit clampedWallEnd   = MATH_clamp(wallEnd,   0, _RENDER_camResYLimit);
+    YGR_Unit clampedWallStart = MATH_clamp(--wallStart, 0, _RENDER_camResYLimit);
+    YGR_Unit clampedWallEnd   = MATH_clamp(--wallEnd,   0, _RENDER_camResYLimit);
 
-    //if (prev_top < clampedWallStart) {
-    u8 top = MATH_min(prev_top, clampedWallStart);
+    if (prev_top <= clampedWallStart) {
         y = MATH_clamp(
                 _RENDER_drawHorizontalColumn(
-                        top-1,
+                        prev_top-1,
                         clampedWallStart,
                         -1,
                         clampedWallStart,
@@ -833,11 +839,9 @@ _RENDER_columnFunction(
                 0,
                 _RENDER_camResYLimit
             );
-    //}
-    //else
-    //    y = clampedWallStart;
-#endif /* RENDER_COLUMN_FUNCTION */
-
+    }
+    else
+        y = clampedWallStart;
     // draw wall
 
     p.is_wall = 1;
@@ -879,8 +883,8 @@ _RENDER_columnFunction(
     #endif
     
     u8 prev_bot = _RENDER_wallBotBuf[_RENDER_page][x];
-    //if (clampedWallEnd < prev_bot)
-    u8 bot = MATH_max(prev_bot, clampedWallEnd);
+    if (clampedWallEnd < prev_bot)
+    //u8 bot = MATH_max(prev_bot, clampedWallEnd);
         _RENDER_drawHorizontalColumn(
                 clampedWallEnd,
                 prev_bot,
@@ -1097,6 +1101,7 @@ RENDER_castRayMultiHit(
 
     YGR_Unit dirVecLengthNorm = MATH_len(ray.direction) * RENDER_UNITS_PER_SQUARE;
 
+    /* KEEP AS REGULAR DIVISIONS */
     delta.x = MATH_abs(dirVecLengthNorm / MATH_nonZero(ray.direction.x));
     delta.y = MATH_abs(dirVecLengthNorm / MATH_nonZero(ray.direction.y));
 
@@ -1367,7 +1372,7 @@ RENDER_renderSimple(
     _RENDER_floorPixelDistances = 0;
 #endif
 
-    drawSprites();
+    _RENDER_drawSprites();
 }
 
 IWRAM_CODE 

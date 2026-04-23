@@ -35,7 +35,7 @@ static char  dbg_str[16];
 static u8    show_palette = 0;
 static u8    use_textures = 0;
 static u8    my_color = 0;
-
+static YGR_Unit cam_height = CAMERA_HEIGHT;
  
 // Write a single 8-bit palette index into Mode 4 VRAM.
 // Mode 4 VRAM is halfword-addressed: each u16 holds two side-by-side pixels.
@@ -123,13 +123,13 @@ void initEntities(void)
 
     YGR_entities[0].position.x   = 3 * YGR_UNITS_PER_SQUARE;
     YGR_entities[0].position.y   = 3 * YGR_UNITS_PER_SQUARE;
-    YGR_entities[0].z            = YGR_UNITS_PER_SQUARE - 256;
+    YGR_entities[0].z            = YGR_UNITS_PER_SQUARE - 512;
     YGR_entities[0].sprite_index = 0;
     YGR_entities[0].flags = 0;
 
     YGR_entities[1].position.x   = 5 * YGR_UNITS_PER_SQUARE;
     YGR_entities[1].position.y   = 5 * YGR_UNITS_PER_SQUARE;
-    YGR_entities[1].z            = YGR_UNITS_PER_SQUARE - 256;
+    YGR_entities[1].z            = YGR_UNITS_PER_SQUARE - 512;
     YGR_entities[1].sprite_index = 1;
     YGR_entities[1].flags = 0;
 }
@@ -241,11 +241,18 @@ handleInput(YGR_Camera *cam)
         dx +=  MATH_cos(cam->angle) / (YGR_UNITS_PER_SQUARE / MOVE_SPEED);
     }
 
-    // Look up/down
+    // Move camera up/down
+/*
+    if (key_is_down(KEY_L)) cam_height-=TURN_SPEED;
+    if (key_is_down(KEY_R)) cam_height+=TURN_SPEED;
+    cam_height = MATH_clamp(cam_height, 0, YGR_UNITS_PER_SQUARE<<1);
+//*/
+    
+    /* Look up/down */
     if (key_is_down(KEY_L)) cam->shear-=TURN_SPEED>>1;
     if (key_is_down(KEY_R)) cam->shear+=TURN_SPEED>>1;
     cam->shear = MATH_clamp(cam->shear, -YGR_UNITS_PER_SQUARE >> 3, YGR_UNITS_PER_SQUARE >> 3);
-    
+
     // Turn
     if (key_is_down(KEY_B)) cam->angle -= TURN_SPEED;
     if (key_is_down(KEY_A)) cam->angle += TURN_SPEED;
@@ -305,7 +312,7 @@ main(void)
     camera.angle        = 0;
     camera.resolution.x = RENDER_W;
     camera.resolution.y = SCREEN_H;
-    camera.height       = CAMERA_HEIGHT;
+    camera.height       = 128;//CAMERA_HEIGHT;
  
     // Ray constraints
     YGR_RayConstraints rc;
@@ -342,8 +349,8 @@ main(void)
         page ^= 1;
 
 //*/
-        // Bob the camera height gently
-        camera.height = CAMERA_HEIGHT + (MATH_sin(RENDER_getFrame() << 3) >> 3);
+        // Bob the camera height gently CAMERA_HEIGHT
+        camera.height = cam_height + (MATH_sin(RENDER_getFrame() << 3) >> 3);
         
         // Handle player input for next frame
         handleInput(&camera);

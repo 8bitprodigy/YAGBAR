@@ -10,7 +10,7 @@
 #define _RENDER_UNUSED(what) (void)(what);
 
 
-IWRAM_CODE static inline void RENDER_PIXEL_FUNCTION(RENDER_PixelInfo *pixel);
+IWRAM_CODE static inline void pixelFunc(RENDER_PixelInfo *pixel);
 
 #ifdef RENDER_COLUMN_FUNCTION
 IWRAM_CODE 
@@ -32,28 +32,29 @@ IWRAM_CODE YGR_Unit RENDER_RS_HEIGHT_FN(s16 x, s16 y);
 static u8                    _RENDER_visibleSprites[RENDER_NUM_VISIBLE_SPRITES];
 static YGR_Unit              _RENDER_spriteDist[RENDER_NUM_VISIBLE_SPRITES];
 static u8                    _RENDER_spriteCount;
-static YGR_Unit              _RENDER_depthBuf[2][RENDER_W]     = {0};
-static u8                    _RENDER_wallTopBuf[2][RENDER_W]   = {0};
-static u8                    _RENDER_wallBotBuf[2][RENDER_W]   = {0};
-static s8                    _RENDER_flatShadeBuf[2][SCREEN_H] = {0};
-static YGR_Camera           *_RENDER_camera                    = NULL;
-static RENDER_ArrayFunction  _RENDER_floorFunction             = NULL;
-static RENDER_ArrayFunction  _RENDER_ceilFunction              = NULL;
-static RENDER_ArrayFunction  _RENDER_rollFunction              = NULL; // says door rolling
-static YGR_Unit             *_RENDER_floorPixelDistances       = NULL;
-static u16                  *_RENDER_drawBuf                   = NULL;
-static YGR_Unit              _RENDER_horizontalDepthStep       = 0; 
-static YGR_Unit              _RENDER_startFloorHeight          = 0;
-static YGR_Unit              _RENDER_startCeil_Height          = 0;
-static YGR_Unit              _RENDER_camResYLimit              = 0;
-static u8                    _RENDER_middleRow                 = 0;
-static YGR_Unit              _RENDER_fHorizontalDepthStart     = 0;
-static YGR_Unit              _RENDER_cHorizontalDepthStart     = 0;
-static s16                   _RENDER_cameraHeightScreen        = 0;
-static YGR_Unit              _RENDER_fovCorrectionFactors[2]   = {0,0}; //correction for hor/vert fov
-static YGR_Unit              _RENDER_fovScale                  = 0;
-static u32                   _RENDER_frame                     = 0;
-static u8                    _RENDER_page                      = 0;
+static YGR_Unit              _RENDER_depthBuf[2][RENDER_W]      = {0};
+static YGR_Unit              _RENDER_flatsDepthBuf[2][SCREEN_H] = {0};
+static u8                    _RENDER_wallTopBuf[2][RENDER_W]    = {0};
+static u8                    _RENDER_wallBotBuf[2][RENDER_W]    = {0};
+static s8                    _RENDER_flatsShadeBuf[2][SCREEN_H]  = {0};
+static YGR_Camera           *_RENDER_camera                     = NULL;
+static RENDER_ArrayFunction  _RENDER_floorFunction              = NULL;
+static RENDER_ArrayFunction  _RENDER_ceilFunction               = NULL;
+static RENDER_ArrayFunction  _RENDER_rollFunction               = NULL; // says door rolling
+static YGR_Unit             *_RENDER_floorPixelDistances        = NULL;
+static u16                  *_RENDER_drawBuf                    = NULL;
+static YGR_Unit              _RENDER_horizontalDepthStep        = 0; 
+static YGR_Unit              _RENDER_startFloorHeight           = 0;
+static YGR_Unit              _RENDER_startCeil_Height           = 0;
+static YGR_Unit              _RENDER_camResYLimit               = 0;
+static s16                   _RENDER_middleRow                  = 0;
+static YGR_Unit              _RENDER_fHorizontalDepthStart      = 0;
+static YGR_Unit              _RENDER_cHorizontalDepthStart      = 0;
+static s16                   _RENDER_cameraHeightScreen         = 0;
+static YGR_Unit              _RENDER_fovCorrectionFactors[2]    = {0,0}; //correction for hor/vert fov
+static YGR_Unit              _RENDER_fovScale                   = 0;
+static u32                   _RENDER_frame                      = 0;
+static u8                    _RENDER_page                       = 0;
 
 
 static inline 
@@ -310,6 +311,7 @@ _RENDER_drawSprites()
                 }
             }
         }
+///*
         draw_y0 = MATH_clamp(draw_y0, 0, SCREEN_H);
         draw_y1 = MATH_clamp(draw_y1, 0, SCREEN_H);
         for (u8 sx = sx0; sx <= sx1; sx++) {
@@ -322,6 +324,7 @@ _RENDER_drawSprites()
                     _RENDER_wallBotBuf[_RENDER_page][sx]
                 );
         }
+//*/
     }
 }
 
@@ -343,105 +346,104 @@ sampleTexture(
     return tex[2 + h * px + py];
 }
 
-// Called by raycastlib for every pixel on screen.
+// Called by wall rendering loop.
 IWRAM_CODE 
 static inline
 void 
-pixelFunc(RENDER_PixelInfo *p)
+_RENDER_wallPixel(RENDER_PixelInfo *p)
 {
     register u8 color;
 #if (DEPTH_SHADE_WALLS || DEPTH_SHADE_FLOOR || DEPTH_SHADE_CEILING || USE_SIDE_SHADING)
     register u8  base;
-    register s8  shade;
     register s16 shaded;
     register s16 below_base;
-#endif /* USE_DEPTH_SHADING || USE_SIDE_SHADING */
-#ifndef RCL_COLUMN_FUNCTION
-    if (p->is_wall) {
-#endif /* RCL_COLUMN_FUNCTION */
+#endif /* DEPTH_SHADE_WALLS || DEPTH_SHADE_FLOOR || DEPTH_SHADE_CEILING || USE_SIDE_SHADING */
+
 
 #if !WALLS_TEXTURED    
-        // Shade walls by depth and face direction.
-        // depth is in RCL units; clamp to 3 shading levels.
-        color = PAL_WALL;//3 - RCL_min(3, (int)(p->depth / YGR_UNITS_PER_SQUARE));
+    // Shade walls by depth and face direction.
+    // depth is in RCL units; clamp to 3 shading levels.
+    color = PAL_WALL;//3 - RCL_min(3, (int)(p->depth / YGR_UNITS_PER_SQUARE));
 #else
-        color = sampleTexture(wall_tex, p->texCoords.x, p->texCoords.y);
+    color = sampleTexture(wall_tex, p->texCoords.x, p->texCoords.y);
 #endif /* WALLS_UNTEXTURED */
-        // Side-faces (N/S vs E/W) get a subtle brightness boost.
-    #if (DEPTH_SHADE_WALLS || USE_SIDE_SHADING)
-        shade  = 
-        #if USE_SIDE_SHADING == 1
-                1 - (p->hit.direction & 1)
-        #else
-                4 - (p->hit.direction)
-        #endif /* USE_SIDE_SHADING */
-        #if (USE_SIDE_SHADING && DEPTH_SHADE_WALLS)
-                +
-        #endif /* USE_SIDE_SHADING && DEPTH_SHADE_WALLS */
-        #if DEPTH_SHADE_WALLS
-                (p->depth >> DEPTH_SHIFT_AMOUNT)
-        #endif /* DEPTH_SHADE_WALLS */
-            ;
-        /* Clamp color to within row */
-        base        = color & 0xF0;
-        shaded      = (s16)color - (s16)shade;
-        shaded     &= ~(shaded >> 15);               // clamp to 0 if negative
-        below_base  = shaded - (s16)base;
-        shaded     &= ~(below_base >> 15);           // clamp to 0 if crossed row boundary
-        color       = (u8)shaded;
-    #endif /* DEPTH_SHADE_WALLS || USE_SIDE_SHADING */
-#ifndef RCL_COLUMN_FUNCTION
-    }
-    else if (p->is_floor) {
-    #if TEXTURED_FLOOR
-        color = sampleTexture(floor_tex, p->texCoords.x, p->texCoords.y);
-    #elif COLORED_FLOOR
-        register s16 tile_x = p->texCoords.x >> 10;
-        register s16 tile_y = p->texCoords.y >> 10;
-        color = floorColorMap[tile_y * LEVEL_W + tile_x];
-    #else
-        color = PAL_FLOOR;
-    #endif /* TEXTURED_FLOORS */
-    #if DEPTH_SHADE_FLOOR
-        /* +((YGR_UNITS_PER_SQUARE>>4) * 18) */
-        shade = ((p->depth) >> (DEPTH_SHIFT_AMOUNT));
-        /* Clamp color to within row */
-        base        = color & 0xF0;
-        shaded      = (s16)color - (s16)shade;
-        shaded     &= ~(shaded >> 15);               // clamp to 0 if negative
-        below_base  = shaded - (s16)base;
-        shaded     &= ~(below_base >> 15);           // clamp to 0 if crossed row boundary
-        color       = (u8)shaded;
-    #endif /* DEPTH_SHADE_FLOOR */
-    }
-    else {
-        // Ceiling / sky
-    #if TEXTURED_CEILING
-        color = sampleTexture(ceil_tex, p->texCoords.x, p->texCoords.y);
-    #else
-        color = PAL_CEIL;
-    #endif /* TEXTURED_CEILING */
-    #if DEPTH_SHADE_CEILING
-        shade = ((p->depth) >> (DEPTH_SHIFT_AMOUNT));
-        /* Clamp color to within row */
-        base        = color & 0xF0;
-        shaded      = (s16)color - (s16)shade;
-        shaded     &= ~(shaded >> 15);               // clamp to 0 if negative
-        below_base  = shaded - (s16)base;
-        shaded     &= ~(below_base >> 15);           // clamp to 0 if crossed row boundary
-        color       = (u8)shaded;
-    #endif /* DEPTH_SHADE_CEILING */
-    }
-#endif /* RCL_COLUMN_FUNCTION */
+
+
+#if (DEPTH_SHADE_WALLS || USE_SIDE_SHADING)
+    /* Clamp color to within row */
+    base        = color & 0xF0;
+    shaded      = (s16)color - (s16)p->shading;
+    shaded     &= ~(shaded >> 15);               // clamp to 0 if negative
+    below_base  = shaded - (s16)base;
+    shaded     &= ~(below_base >> 15);           // clamp to 0 if crossed row boundary
+    color       = (u8)shaded;
+#endif /* DEPTH_SHADE_WALLS || USE_SIDE_SHADING */
 
     //u16 *addr = _RENDER_drawBuf + (u16)((p->position.y * SCREEN_W + p->position.x * 2) >> 1);
     *p->destination = (u16)color | ((u16)color << 8);
 }
 
 
+IWRAM_CODE 
+static inline
+void 
+_RENDER_flatsPixel(RENDER_PixelInfo *p)
+{
+    register u8 color;
+#if (DEPTH_SHADE_WALLS || DEPTH_SHADE_FLOOR || DEPTH_SHADE_CEILING || USE_SIDE_SHADING)
+    register u8  base;
+    register s16 shaded;
+    register s16 below_base;
+#endif /* DEPTH_SHADE_WALLS || DEPTH_SHADE_FLOOR || DEPTH_SHADE_CEILING || USE_SIDE_SHADING */
+
+    if (p->is_floor) {
+    
+#if TEXTURED_FLOOR
+        color = sampleTexture(floor_tex, p->texCoords.x, p->texCoords.y);
+#elif COLORED_FLOOR
+        register s16 tile_x = p->texCoords.x >> 10;
+        register s16 tile_y = p->texCoords.y >> 10;
+        color = floorColorMap[tile_y * LEVEL_W + tile_x];
+#else
+        color = PAL_FLOOR;
+#endif /* TEXTURED_FLOORS */
+#if DEPTH_SHADE_FLOOR
+        /* Clamp color to within row */
+        base        = color & 0xF0;
+        shaded      = color - p->shading;
+        shaded     &= ~(shaded >> 15);               // clamp to 0 if negative
+        below_base  = shaded - (s16)base;
+        shaded     &= ~(below_base >> 15);           // clamp to 0 if crossed row boundary
+        color       = (u8)shaded;
+#endif /* DEPTH_SHADE_FLOOR */
+
+    }
+    else {
+        // Ceiling / sky
+
+#if TEXTURED_CEILING
+        color = sampleTexture(ceil_tex, p->texCoords.x, p->texCoords.y);
+#else
+        color = PAL_CEIL;
+#endif /* TEXTURED_CEILING */
+#if DEPTH_SHADE_CEILING
+        /* Clamp color to within row */
+        base        = color & 0xF0;
+        shaded      = color - p->shading;
+        shaded     &= ~(shaded >> 15);               // clamp to 0 if negative
+        below_base  = shaded - (s16)base;
+        shaded     &= ~(below_base >> 15);           // clamp to 0 if crossed row boundary
+        color       = (u8)shaded;
+#endif /* DEPTH_SHADE_CEILING */
+    }
+
+    *p->destination = (u16)color | ((u16)color << 8);
+}
+
 
 /*  Helper function that determines intersection with both ceiling and floor. 
 */
+IWRAM_CODE
 static inline
 YGR_Unit 
 _RENDER_floorCeilFunction(s16 x, s16 y)
@@ -456,6 +458,7 @@ _RENDER_floorCeilFunction(s16 x, s16 y)
   return ((f & 0x00ff) << 8) | (c & 0x00ff);
 }
 
+IWRAM_CODE
 static inline
 YGR_Unit 
 _floorHeightNotZeroFunction(s16 x, s16 y)
@@ -467,12 +470,71 @@ _floorHeightNotZeroFunction(s16 x, s16 y)
 }
 
 
+IWRAM_CODE
+static inline void
+_RENDER_precomputeFlatsDepths(void)
+{
+    YGR_Unit 
+        cam_height   = _RENDER_camera->height,
+        dist_to_ceil = RENDER_UNITS_PER_SQUARE * 2 - cam_height;
+
+    s16 horizon = _RENDER_middleRow;
+    u8 limit;
+    
+    if (0 <= horizon && horizon < SCREEN_H) {
+        _RENDER_flatsDepthBuf[_RENDER_page][horizon] = YGR_INFINITY;
+        limit = horizon;
+    }
+    else {
+        limit = (horizon < 0)
+            ? 0
+            : SCREEN_H - 1;
+    }
+
+    for (u8 i = 0; i < limit; i++) {
+        _RENDER_flatsDepthBuf[_RENDER_page][i] = MATH_fast_div(
+                dist_to_ceil * (RENDER_VERTICAL_FOV), 
+                MATH_nonZero(horizon - i)
+            );
+    }
+
+    for (u8 i = limit + 1; i < _RENDER_camResYLimit + 1; i++) {
+        _RENDER_flatsDepthBuf[_RENDER_page][i] = MATH_fast_div(
+                cam_height   * (RENDER_VERTICAL_FOV), 
+                MATH_nonZero(i - horizon)
+            );
+    }
+#if DEPTH_SHADE_FLOOR || DEPTH_SHADE_CEILING
+    for (u8 i = 0; i < _RENDER_camResYLimit + 1; i++) {
+        register YGR_Unit depth = _RENDER_flatsDepthBuf[_RENDER_page][i] ;
+        register u8       shade = ( depth >> DEPTH_SHIFT_AMOUNT >> 2 );
+        if (depth != shade) {
+            RENDER_PixelInfo p;
+            p.is_floor    = (i >= horizon);
+            p.is_wall     = 0;
+            p.shading     = shade;
+            p.position.y  = i;
+            p.destination = _RENDER_drawBuf + (i * (SCREEN_W >> 1));
+
+            for (u8 x = 0; x < RENDER_W; x++) {
+                p.position.x = x;
+                _RENDER_flatsPixel(&p);
+                p.destination++;
+            }
+        }
+
+        _RENDER_flatsShadeBuf[_RENDER_page][i] = shade;
+    }
+#endif
+}
+
+
 /* Helper for drawing floor or ceiling. Returns the last drawn pixel position. 
 */
 IWRAM_CODE
 static 
 s16 
-_RENDER_drawHorizontalColumn(
+_RENDER_drawFlatsColumn(
     YGR_Unit    yCurrent,
     YGR_Unit    yTo,
     YGR_Unit    limit1, // TODO: s16?
@@ -536,7 +598,7 @@ _RENDER_drawHorizontalColumn(
                 pixelInfo->position.y = i;\
                 if (doDepth) { /*constant condition - compiler should optimize it out*/\
                     depth += depthIncrement;\
-                    pixelInfo->depth = MATH_zeroClamp(depth); \
+                    pixelInfo->depth   = _RENDER_flatsDepthBuf[_RENDER_page][i]; \
                     /* ^ int comparison is fast, it is not braching! (= test instr.) */\
                 }\
                 if (doCoords) { /*constant condition - compiler should optimize it out*/\
@@ -548,7 +610,8 @@ _RENDER_drawHorizontalColumn(
                         cam_pos.y \
                         + (((s32)(d * dy) * rcp_d2) >> 10); \
                 }\
-                RENDER_PIXEL_FUNCTION(pixelInfo);\
+                pixelInfo->shading = _RENDER_flatsShadeBuf[_RENDER_page][i]; \
+                _RENDER_flatsPixel(pixelInfo);\
                 pixelInfo->destination += rowStep; \
             }\
         }
@@ -639,7 +702,7 @@ _RENDER_drawWall(
             + pixelInfo->position.x;
 
     for (
-        YGR_Unit i = yCurrent + increment; 
+        u8 i = yCurrent + increment; 
         increment == -1 ? i >= limit : i <= limit; // TODO: is efficient?
         i += increment
     ) {
@@ -651,7 +714,26 @@ _RENDER_drawWall(
         textureCoordScaled += coordStepScaled;
 #endif
 
-        RENDER_PIXEL_FUNCTION(pixelInfo);
+#if (DEPTH_SHADE_WALLS || USE_SIDE_SHADING)
+    /*  BEGIN SHADE ASSIGNMENT */
+        pixelInfo->shading = 
+        #if USE_SIDE_SHADING == 1
+            // Side-faces (N/S vs E/W) get a subtle brightness boost.
+            1 - (pixelInfo->hit.direction & 1)
+        #else  
+            4 - (pixelInfo->hit.direction)
+        #endif /* USE_SIDE_SHADING */
+        #if (USE_SIDE_SHADING && DEPTH_SHADE_WALLS)
+                +
+        #endif /* USE_SIDE_SHADING && DEPTH_SHADE_WALLS */
+        #if DEPTH_SHADE_WALLS
+                (pixelInfo->depth >> DEPTH_SHIFT_AMOUNT)
+        #endif /* DEPTH_SHADE_WALLS */
+            ;
+    /*  END SHADE ASSIGNMENT */
+#endif /* DEPTH_SHADE_WALLS || USE_SIDE_SHADING */
+
+        _RENDER_wallPixel(pixelInfo);
         pixelInfo->destination += rowStep;
     }
 
@@ -814,17 +896,24 @@ _RENDER_columnFunction(
     p.is_wall = 0;
     p.is_floor = 0;
     p.is_horizon = 1;
+#if RENDER_COMPUTE_CEILING_DEPTH == 1
+    
+#else
     p.depth = 1;
+#endif /* RENDER_COMPUTE_CEILING_DEPTH */
     p.height = RENDER_UNITS_PER_SQUARE;
     
     u8 prev_top = MATH_clamp(_RENDER_wallTopBuf[_RENDER_page][x], 0, SCREEN_H);
-    YGR_Unit clampedWallStart = MATH_clamp(--wallStart, 0, _RENDER_camResYLimit);
-    YGR_Unit clampedWallEnd   = MATH_clamp(--wallEnd,   0, _RENDER_camResYLimit);
+    YGR_Unit clampedWallStart = MATH_clamp(wallStart, 0, _RENDER_camResYLimit);
+    YGR_Unit clampedWallEnd   = MATH_clamp(wallEnd,   0, _RENDER_camResYLimit);
 
     if (prev_top <= clampedWallStart) {
+#if RENDER_COMPUTE_CEILING_DEPTH == 1
+        p.depth = _RENDER_horizontalDepthStep;
+#endif
         y = MATH_clamp(
-                _RENDER_drawHorizontalColumn(
-                        prev_top-1,
+                _RENDER_drawFlatsColumn(
+                        prev_top,
                         clampedWallStart,
                         -1,
                         clampedWallStart,
@@ -842,8 +931,8 @@ _RENDER_columnFunction(
     }
     else
         y = clampedWallStart;
-    // draw wall
 
+    /* DRAW WALL */
     p.is_wall = 1;
     p.is_floor = 1;
     p.depth = dist;
@@ -870,22 +959,19 @@ _RENDER_columnFunction(
     y = MATH_max(y,limit); // take max, in case no wall was drawn
     y = MATH_max(y,wallStart);
 
-    // draw floor
-#ifdef RENDER_COLUMN_FUNCTION
-    u8 prev_bot = _RENDER_wallBotBuf[_RENDER_page][x];
-    if (y < prev_bot)
-    RENDER_COLUMN_FUNCTION(x, prev_bot, y - 1, 1);
-#else
+    /* DRAW FLOOR */
     p.is_wall = 0;
-    
-    #if RENDER_COMPUTE_FLOOR_DEPTH == 1
-    p.depth = (_RENDER_camera->resolution.y - y) * _RENDER_horizontalDepthStep + 1;
-    #endif
+#if RENDER_COMPUTE_FLOOR_DEPTH == 1
+#else
+    p.depth = 1;
+#endif /* RENDER_COMPUTE_FLOOR_DEPTH */
     
     u8 prev_bot = _RENDER_wallBotBuf[_RENDER_page][x];
     if (clampedWallEnd < prev_bot)
-    //u8 bot = MATH_max(prev_bot, clampedWallEnd);
-        _RENDER_drawHorizontalColumn(
+#if RENDER_COMPUTE_FLOOR_DEPTH == 1
+        p.depth = (_RENDER_camera->resolution.y - y) * _RENDER_horizontalDepthStep + 1;
+#endif
+        _RENDER_drawFlatsColumn(
                 clampedWallEnd,
                 prev_bot,
                 -1,
@@ -898,7 +984,6 @@ _RENDER_columnFunction(
                 &ray,
                 &p
             );
-#endif /* RENDER_COLUMN_FUNCTION */
     
     _RENDER_wallTopBuf[_RENDER_page][x] = clampedWallStart;
     _RENDER_wallBotBuf[_RENDER_page][x] = clampedWallEnd;
@@ -1360,6 +1445,8 @@ RENDER_renderSimple(
         _RENDER_fovCorrectionFactors[1],
         RENDER_UNITS_PER_SQUARE
     );
+    
+    _RENDER_precomputeFlatsDepths();
     
     _RENDER_castRaysMultiHit(
             _floorHeightNotZeroFunction,

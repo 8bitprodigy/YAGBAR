@@ -167,6 +167,7 @@ typedef struct
     YGR_Unit          wall_height; // < Only for wall pixels, says its height.
     YGR_Unit          height;      // < World height (mostly for floor).
     u16              *destination; // < Destination address for pixel (precalculated).
+    s8                shading;
     union {
         u8 flags;
         struct {

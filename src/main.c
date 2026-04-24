@@ -312,7 +312,7 @@ main(void)
     camera.angle        = 0;
     camera.resolution.x = RENDER_W;
     camera.resolution.y = SCREEN_H;
-    camera.height       = 128;//CAMERA_HEIGHT;
+    camera.height       = cam_height;
  
     // Ray constraints
     YGR_RayConstraints rc;

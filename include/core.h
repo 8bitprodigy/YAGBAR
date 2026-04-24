@@ -47,7 +47,7 @@ typedef struct
     YGR_Unit height;
     /*  Shear offset in pixels (0 => no shear), can simulate
         looking up/down. */
-    s16         shear; 
+    s16      shear; 
 } 
 YGR_Camera;
 

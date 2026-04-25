@@ -79,7 +79,7 @@ export VPATH  := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
 
 export DEPSDIR := $(CURDIR)/$(BUILD)
 
-CFILES   := main.c core.c data.c math.c render.c reciprocal_table.c
+CFILES   := core.c data.c math.c mgba.c render.c reciprocal_table.c main.c 
 SFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
 PNGFILES := $(foreach dir,$(GRAPHICS),$(notdir $(wildcard $(dir)/*.png)))
 BINFILES := $(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))

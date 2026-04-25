@@ -354,11 +354,15 @@ RENDER_moveCameraWithCollision(
 );
 
 void
+RENDER_init(void);
+void
 RENDER_flip(void);
 u32 
 RENDER_getFrame(void);
 u16 *
 RENDER_getDrawBuffer(void);
+void 
+RENDER_plot(u8 x, u8 y, u8 color);
 
 
 #endif /* YGR_RENDER_H */

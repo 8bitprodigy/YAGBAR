@@ -5,6 +5,7 @@
 #include <tonc.h>
 
 #include "core.h"
+#include "mgba.h"
 #include "reciprocal_table.h"
 
 
@@ -102,17 +103,37 @@ extern const YGR_Unit cosLUT[];
 /*******************************************************************************
     PUBLIC METHODS / FUNCTIONS
 *******************************************************************************/
-IWRAM_CODE
 static inline
 YGR_Unit
 MATH_fast_div(YGR_Unit numerator, YGR_Unit denominator)
 {
     if ((u32)denominator < DEPTH_RECIPROCAL_SIZE)
         return (YGR_Unit)(((s32)numerator * depth_reciprocal[denominator]) >> 10);
+    if (0 < numerator)
+        switch (denominator) {
+        case 1024:  return numerator >> 10;
+        case 2048:  return numerator >> 11;
+        case 4096:  return numerator >> 12;
+        case 8192:  return numerator >> 13;
+        case 16384: return numerator >> 14;
+        case 32768: return numerator >> 15;
+        case 65536: return numerator >> 16;
+        }
+    else {
+        register YGR_Unit num = -numerator;
+        switch (denominator) {
+        case 1024:  return -(num >> 10);
+        case 2048:  return -(num >> 11);
+        case 4096:  return -(num >> 12);
+        case 8192:  return -(num >> 13);
+        case 16384: return -(num >> 14);
+        case 32768: return -(num >> 15);
+        case 65536: return -(num >> 16);
+        }
+    }
     return numerator / denominator;
 }
 
-IWRAM_CODE
 static inline
 YGR_Unit
 MATH_fast_mod(YGR_Unit numerator, YGR_Unit modulus)
@@ -124,8 +145,7 @@ MATH_fast_mod(YGR_Unit numerator, YGR_Unit modulus)
     return numerator % modulus;
 }
 
-/// Like mod, but behaves differently for negative values.
-IWRAM_CODE 
+/// Like mod, but behaves differently for negative values. 
 static inline 
 YGR_Unit 
 MATH_wrap(YGR_Unit value, YGR_Unit mod)
@@ -133,8 +153,7 @@ MATH_wrap(YGR_Unit value, YGR_Unit mod)
     YGR_Unit cmp = value < 0;
     return cmp * mod + MATH_fast_mod(value, mod) - cmp;
 }
-
-IWRAM_CODE 
+ 
 static inline
 YGR_Unit 
 MATH_clamp(YGR_Unit value, YGR_Unit valueMin, YGR_Unit valueMax)
@@ -150,16 +169,14 @@ MATH_clamp(YGR_Unit value, YGR_Unit valueMin, YGR_Unit valueMax)
             * valueMax;
 }
 
-/// Performs division, rounding down, NOT towards zero.
-IWRAM_CODE 
+/// Performs division, rounding down, NOT towards zero. 
 static inline 
 YGR_Unit 
 MATH_divRoundDown(YGR_Unit value, YGR_Unit divisor)
 {
     return MATH_fast_div(value, divisor) - ((value >= 0) ? 0 : 1);
 }
-
-IWRAM_CODE 
+ 
 static inline 
 YGR_Unit 
 MATH_abs(YGR_Unit value)
@@ -176,7 +193,6 @@ MATH_angleToDirection(YGR_Unit angle);
     @return MATH_normalized output in YGR_Units (from -YGR_UNITS_PER_SQUARE to
         YGR_UNITS_PER_SQUARE)
 */
-IWRAM_CODE
 static inline
 YGR_Unit 
 MATH_cos(YGR_Unit input)
@@ -206,7 +222,8 @@ MATH_cos(YGR_Unit input)
 }
 
 #undef trigHelper
-IWRAM_CODE 
+
+
 static inline
 YGR_Unit 
 MATH_sin(YGR_Unit input)
@@ -241,8 +258,7 @@ MATH_len(YGR_Vec2 v)
 }
 
 
-/// Normalizes given vector to have YGR_UNITS_PER_SQUARE length.
-IWRAM_CODE 
+/// Normalizes given vector to have YGR_UNITS_PER_SQUARE length. 
 static inline
 YGR_Vec2 
 MATH_normalize(YGR_Vec2 v)
@@ -257,8 +273,7 @@ MATH_normalize(YGR_Vec2 v)
     return result;
 }
 
-/// Computes a cos of an angle between two vectors.
-IWRAM_CODE 
+/// Computes a cos of an angle between two vectors. 
 static inline
 YGR_Unit 
 MATH_vectorsAngleCos(YGR_Vec2 v1, YGR_Vec2 v2)
@@ -275,8 +290,7 @@ MATH_clamp(YGR_Unit value, YGR_Unit valueMin, YGR_Unit valueMax);
 
 /*  Converts an angle in whole degrees to an angle in YGR_Units that this 
     engine uses.
-*/   
-IWRAM_CODE 
+*/    
 static inline
 YGR_Unit 
 MATH_degreesToUnitsAngle(int16_t degrees)
@@ -284,7 +298,6 @@ MATH_degreesToUnitsAngle(int16_t degrees)
     return MATH_fast_div((degrees * YGR_UNITS_PER_SQUARE), 360);
 }
 
-IWRAM_CODE
 static inline 
 int8_t 
 MATH_pointIsLeftOfRay(YGR_Vec2 point, YGR_Ray ray)

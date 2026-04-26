@@ -120,7 +120,7 @@ flatColumnFunc(
 
 void initEntities(void)
 {
-    YGR_entityCount = 5;
+    YGR_entityCount = 0;
 
     YGR_entities[0].position.x   = 3 * YGR_UNITS_PER_SQUARE;
     YGR_entities[0].position.y   = 3 * YGR_UNITS_PER_SQUARE;
@@ -160,60 +160,6 @@ static inline u8
 rgbToIndex(u8 r, u8 g, u8 b)
 {
   return (r & 3) | ((g & 7) << 2) | ((b & 7) << 5);
-}
-
-static void 
-setupPalette(void)
-{
-    // Each row: {r, g, b} at full saturation midpoint
-    // Ramp goes dark desaturated -> full colour -> light desaturated
-    static const u8 hues[16][3] = {
-        { 31, 31, 31 },  // row 0:  greyscale
-        { 20, 20, 12 },  // row 1:  warm grey
-        { 20, 10,  0 },  // row 2:  brown
-        { 31,  0,  0 },  // row 3:  red
-        { 31, 12,  0 },  // row 4:  orange
-        { 31, 31,  0 },  // row 5:  yellow
-        { 16, 31,  0 },  // row 6:  yellow-green
-        {  0, 24,  0 },  // row 7:  green
-        {  0, 31, 16 },  // row 8:  teal
-        {  0, 31, 31 },  // row 9:  cyan
-        {  0, 16, 31 },  // row 10: sky blue
-        {  0,  0, 31 },  // row 11: blue
-        { 12,  0, 31 },  // row 12: indigo
-        { 31,  0, 31 },  // row 13: magenta
-        { 31,  0, 16 },  // row 14: rose
-        { 31, 16, 16 },  // row 15: pink
-    };
-
-    for (int row = 0; row < 16; row++) {
-        for (int shade = 0; shade < 16; shade++) {
-            int r, g, b;
-
-            if (row == 0) {
-                int v = shade * 2;
-                pal_bg_mem[shade] = RGB15(v, v, v);
-                continue;
-            }
-
-            if (shade < 8) {
-                // Dark tint at shade 0 -> full colour at shade 7
-                int t = shade + 1;  // 2..9
-                r = hues[row][0] * t / 8;
-                g = hues[row][1] * t / 8;
-                b = hues[row][2] * t / 8;
-            }
-            else {
-                // Full colour -> light pastel, add a little white
-                int t = shade - 7;  // 1..8
-                r = hues[row][0] + (31 - hues[row][0]) * t / 9;
-                g = hues[row][1] + (31 - hues[row][1]) * t / 9;
-                b = hues[row][2] + (31 - hues[row][2]) * t / 9;
-            }
-
-            pal_bg_mem[row * 16 + shade] = RGB15(r, g, b);
-        }
-    }
 }
 
 static void 
@@ -289,7 +235,7 @@ handleInput(YGR_Camera *cam)
         show_palette = !show_palette;
         if (!show_palette) RENDER_init();
     }
-    if (key_hit(KEY_START))  use_textures = !use_textures;
+    if (key_hit(KEY_START))  cam_height = YGR_UNITS_PER_SQUARE;
  
     // Collision check: only move if destination square is open
     if (dx || dy)
@@ -324,8 +270,10 @@ main(void)
     // --- Video mode 4, BG2 enabled, page-flip capable ---
     REG_DISPCNT = DCNT_MODE4 | DCNT_BG2 | DCNT_OBJ;
     setupPalette();
+    DBG_OUT(
+            mgba_open();
+        );
     
-    mgba_open();
     
 #if DEBUG_PROFILE
     txt_init_std();
@@ -383,8 +331,11 @@ main(void)
 
         uint cycles = profile_stop();
 #if DEBUG_PROFILE
-    siprintf(dbg_str, "%10u", cycles);
-    if (!show_palette) obj_puts2(0, 0, dbg_str, 0xF200, oe);
+    if (!show_palette) {
+        siprintf(dbg_str, "%10u", cycles);
+        obj_puts2(0, 0, dbg_str, 0xF200, oe);
+    }
+    else obj_puts2(0, -16, dbg_str, 0xF200, oe);
 #endif /* DEBUG_PROFILE */
         profile_start();
 

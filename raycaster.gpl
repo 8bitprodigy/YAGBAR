@@ -1,0 +1,260 @@
+GIMP Palette
+Name: GBAraycaster
+Columns: 16
+#
+  0   0   0	Index 0
+ 16  16  16	Index 1
+ 32  32  32	Index 2
+ 48  48  48	Index 3
+ 64  64  64	Index 4
+ 80  80  80	Index 5
+ 96  96  96	Index 6
+112 112 112	Index 7
+128 128 128	Index 8
+144 144 144	Index 9
+160 160 160	Index 10
+176 176 176	Index 11
+192 192 192	Index 12
+208 208 208	Index 13
+224 224 224	Index 14
+240 240 240	Index 15
+ 16  16   8	Index 16
+ 40  40  24	Index 17
+ 56  56  32	Index 18
+ 80  80  48	Index 19
+ 96  96  56	Index 20
+120 120  72	Index 21
+136 136  80	Index 22
+160 160  96	Index 23
+168 168 112	Index 24
+176 176 128	Index 25
+184 184 144	Index 26
+192 192 160	Index 27
+208 208 176	Index 28
+216 216 192	Index 29
+224 224 208	Index 30
+232 232 224	Index 31
+ 16   8   0	Index 32
+ 40  16   0	Index 33
+ 56  24   0	Index 34
+ 80  40   0	Index 35
+ 96  48   0	Index 36
+120  56   0	Index 37
+136  64   0	Index 38
+160  80   0	Index 39
+168  96  24	Index 40
+176 112  48	Index 41
+184 136  80	Index 42
+192 152 104	Index 43
+208 168 136	Index 44
+216 192 160	Index 45
+224 208 192	Index 46
+232 224 216	Index 47
+ 24   0   0	Index 48
+ 56   0   0	Index 49
+ 88   0   0	Index 50
+120   0   0	Index 51
+152   0   0	Index 52
+184   0   0	Index 53
+216   0   0	Index 54
+248   0   0	Index 55
+248  24  24	Index 56
+248  48  48	Index 57
+248  80  80	Index 58
+248 104 104	Index 59
+248 136 136	Index 60
+248 160 160	Index 61
+248 192 192	Index 62
+248 216 216	Index 63
+ 24   8   0	Index 64
+ 56  24   0	Index 65
+ 88  32   0	Index 66
+120  48   0	Index 67
+152  56   0	Index 68
+184  72   0	Index 69
+216  80   0	Index 70
+248  96   0	Index 71
+248 112  24	Index 72
+248 128  48	Index 73
+248 144  80	Index 74
+248 160 104	Index 75
+248 176 136	Index 76
+248 192 160	Index 77
+248 208 192	Index 78
+248 224 216	Index 79
+ 24  24   0	Index 80
+ 56  56   0	Index 81
+ 88  88   0	Index 82
+120 120   0	Index 83
+152 152   0	Index 84
+184 184   0	Index 85
+216 216   0	Index 86
+248 248   0	Index 87
+248 248  24	Index 88
+248 248  48	Index 89
+248 248  80	Index 90
+248 248 104	Index 91
+248 248 136	Index 92
+248 248 160	Index 93
+248 248 192	Index 94
+248 248 216	Index 95
+ 16  24   0	Index 96
+ 32  56   0	Index 97
+ 48  88   0	Index 98
+ 64 120   0	Index 99
+ 80 152   0	Index 100
+ 96 184   0	Index 101
+112 216   0	Index 102
+128 248   0	Index 103
+136 248  24	Index 104
+152 248  48	Index 105
+168 248  80	Index 106
+176 248 104	Index 107
+192 248 136	Index 108
+208 248 160	Index 109
+216 248 192	Index 110
+232 248 216	Index 111
+  8  16   8	Index 112
+ 16  40  16	Index 113
+ 24  56  24	Index 114
+ 32  80  32	Index 115
+ 40  96  40	Index 116
+ 48 120  48	Index 117
+ 56 136  56	Index 118
+ 72 160  64	Index 119
+ 88 168  80	Index 120
+104 176 104	Index 121
+128 184 120	Index 122
+144 192 144	Index 123
+168 208 160	Index 124
+184 216 184	Index 125
+208 224 200	Index 126
+224 232 224	Index 127
+  0  24  16	Index 128
+  0  56  32	Index 129
+  0  88  48	Index 130
+  0 120  64	Index 131
+  0 152  80	Index 132
+  0 184  96	Index 133
+  0 216 112	Index 134
+  0 248 128	Index 135
+ 24 248 136	Index 136
+ 48 248 152	Index 137
+ 80 248 168	Index 138
+104 248 176	Index 139
+136 248 192	Index 140
+160 248 208	Index 141
+192 248 216	Index 142
+216 248 232	Index 143
+  0  24  24	Index 144
+  0  56  56	Index 145
+  0  88  88	Index 146
+  0 120 120	Index 147
+  0 152 152	Index 148
+  0 184 184	Index 149
+  0 216 216	Index 150
+  0 248 248	Index 151
+ 24 248 248	Index 152
+ 48 248 248	Index 153
+ 80 248 248	Index 154
+104 248 248	Index 155
+136 248 248	Index 156
+160 248 248	Index 157
+192 248 248	Index 158
+216 248 248	Index 159
+  0  16  24	Index 160
+  0  32  56	Index 161
+  0  48  88	Index 162
+  0  64 120	Index 163
+  0  80 152	Index 164
+  0  96 184	Index 165
+  0 112 216	Index 166
+  0 128 248	Index 167
+ 24 136 248	Index 168
+ 48 152 248	Index 169
+ 80 168 248	Index 170
+104 176 248	Index 171
+136 192 248	Index 172
+160 208 248	Index 173
+192 216 248	Index 174
+216 232 248	Index 175
+  0   0  24	Index 176
+  0   0  56	Index 177
+  0   0  88	Index 178
+  0   0 120	Index 179
+  0   0 152	Index 180
+  0   0 184	Index 181
+  0   0 216	Index 182
+  0   0 248	Index 183
+ 24  24 248	Index 184
+ 48  48 248	Index 185
+ 80  80 248	Index 186
+104 104 248	Index 187
+136 136 248	Index 188
+160 160 248	Index 189
+192 192 248	Index 190
+216 216 248	Index 191
+  8   0  24	Index 192
+ 24   0  56	Index 193
+ 32   0  88	Index 194
+ 48   0 120	Index 195
+ 56   0 152	Index 196
+ 72   0 184	Index 197
+ 80   0 216	Index 198
+ 96   0 248	Index 199
+112  24 248	Index 200
+128  48 248	Index 201
+144  80 248	Index 202
+160 104 248	Index 203
+176 136 248	Index 204
+192 160 248	Index 205
+208 192 248	Index 206
+224 216 248	Index 207
+ 24   0  24	Index 208
+ 56   0  56	Index 209
+ 88   0  88	Index 210
+120   0 120	Index 211
+152   0 152	Index 212
+184   0 184	Index 213
+216   0 216	Index 214
+248   0 248	Index 215
+248  24 248	Index 216
+248  48 248	Index 217
+248  80 248	Index 218
+248 104 248	Index 219
+248 136 248	Index 220
+248 160 248	Index 221
+248 192 248	Index 222
+248 216 248	Index 223
+ 24   0  16	Index 224
+ 56   0  32	Index 225
+ 88   0  48	Index 226
+120   0  64	Index 227
+152   0  80	Index 228
+184   0  96	Index 229
+216   0 112	Index 230
+248   0 128	Index 231
+248  24 136	Index 232
+248  48 152	Index 233
+248  80 168	Index 234
+248 104 176	Index 235
+248 136 192	Index 236
+248 160 208	Index 237
+248 192 216	Index 238
+248 216 232	Index 239
+ 24  16  16	Index 240
+ 56  32  32	Index 241
+ 88  48  48	Index 242
+120  64  64	Index 243
+152  80  80	Index 244
+184  96  96	Index 245
+216 112 112	Index 246
+248 128 128	Index 247
+248 136 136	Index 248
+248 152 152	Index 249
+248 168 168	Index 250
+248 176 176	Index 251
+248 192 192	Index 252
+248 208 208	Index 253
+248 216 216	Index 254
+248 232 232	Index 255

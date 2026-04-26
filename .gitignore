@@ -49,7 +49,12 @@
 .clangd*
 compile_flags.txt
 CMakeUserPresets.json
+mkpal
+palette.bmp
+palette.png
+palette.tga
 
 *.sav
 *.elf
 *.gba
+

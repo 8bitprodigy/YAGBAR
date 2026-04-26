@@ -70,7 +70,7 @@ YGR_RayConstraints;
 /*  THINKER
     The "brain" of enemy AI.
 */
-typedef struct YGR_Entity;
+typedef struct YGR_Entity YGR_Entity;
 typedef void(*YGR_ThinkerFunction)(struct YGR_Entity *entity, void *user_data);
 typedef struct
 {
@@ -83,6 +83,7 @@ YGR_Thinker;
 
 
 typedef struct
+YGR_Entity
 {
     YGR_Thinker thinker;
     YGR_Vec2    position;
@@ -140,14 +141,14 @@ YGR_Thinker_init(YGR_Thinker *thinker);
 void
 YGR_Thinker_set(
     YGR_Thinker         *thinker,
-    YGR_ThinkerFunction *function,
+    YGR_ThinkerFunction  function,
     YGR_Unit             delay,
     void                *data
 );
 void
 YGR_Thinker_repeat(
     YGR_Thinker         *thinker,
-    YGR_ThinkerFunction *function,
+    YGR_ThinkerFunction  function,
     YGR_Unit             interval,
     void                *data
 );

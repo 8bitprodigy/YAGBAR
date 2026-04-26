@@ -2,7 +2,7 @@
 #define RECIPROCAL_TABLE_H
 
 
-#include <tonc.h>
+#include "core.h"
 
 
 #define DEPTH_RECIPROCAL_SIZE 1024

@@ -51,16 +51,16 @@
 #define DEBUG_PROFILE        1
 #define WALLS_TEXTURED       1
 #define DEPTH_SHADE_SPRITES  0
-#define DEPTH_SHADE_WALLS    0
-#define DEPTH_SHADE_FLOOR    0
-#define DEPTH_SHADE_CEILING  0
+#define DEPTH_SHADE_WALLS    1
+#define DEPTH_SHADE_FLOOR    1
+#define DEPTH_SHADE_CEILING  1
 #define DEPTH_SHIFT_AMOUNT  11
 /*  Shade walls depending on their cardinal direction:
 		0 - Off
 		1 - Wolf3D-like
 		2 - Indexed
 */
-#define USE_SIDE_SHADING     1
+#define USE_SIDE_SHADING     2
 #define TEXTURED_FLOOR       0
 #define TEXTURED_CEILING     0
 #define COLORED_FLOOR        0

@@ -4,6 +4,7 @@
 
 #include "core.h"
 #include "data.h"
+#include "math.h"
 #include "render.h"
 
 
@@ -82,33 +83,58 @@ YGR_tick(void)
 void
 YGR_Thinker_init(YGR_Thinker *thinker)
 {
-    
+    thinker->function  = NULL;
+    thinker->data = NULL;
+    thinker->next_time = YGR_INFINITY;
+    thinker->interval  = 0;
 }
 
 void
 YGR_Thinker_set(
     YGR_Thinker         *thinker,
-    YGR_ThinkerFunction *function,
+    YGR_ThinkerFunction  function,
     YGR_Unit             delay,
     void                *data
 )
 {
-    
+    thinker->function  = function;
+    thinker->data      = data;
+    thinker->interval  = -delay;
+    thinker->next_time = 0;
 }
 
 void
 YGR_Thinker_repeat(
     YGR_Thinker         *thinker,
-    YGR_ThinkerFunction *function,
+    YGR_ThinkerFunction  function,
     YGR_Unit             interval,
     void                *data
 )
 {
-    
+    thinker->function  = function;
+    thinker->data      = data;
+    thinker->interval  = interval;
+    thinker->next_time = 0;
 }
 
 void
 YGR_Thinker_update(YGR_Entity *entity, u32 current_time)
 {
+    YGR_Thinker *thinker = (YGR_Thinker*)entity;
+    if (!thinker->function) return;
+
+    register YGR_Unit delta    = YGR_deltaTime;
+    register YGR_Unit interval = thinker->interval;
     
+    thinker->next_time += delta;
+
+    if (thinker->next_time < MATH_abs(interval)) return;
+
+    thinker->next_time = 0;
+    thinker->function(entity, thinker->data);
+
+    if (interval < 0) { /* If one-shot */
+        thinker->function = NULL;
+        thinker->data     = NULL;
+    }
 }

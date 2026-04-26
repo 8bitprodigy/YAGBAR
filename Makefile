@@ -79,7 +79,8 @@ export VPATH  := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
 
 export DEPSDIR := $(CURDIR)/$(BUILD)
 
-CFILES   := core.c data.c math.c mgba.c render.c reciprocal_table.c main.c 
+CFILES   := core.c data.c math.c mgba.c render.c palette_luts.c reciprocal_table.c 
+CFILES   += ../tools/mkpal.c main.c 
 SFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
 PNGFILES := $(foreach dir,$(GRAPHICS),$(notdir $(wildcard $(dir)/*.png)))
 BINFILES := $(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
@@ -128,7 +129,9 @@ $(BUILD):
 
 #---------------------------------------------------------------------------------
 mkpal:
-	gcc mkpal.c -o mkpal && ./mkpal > raycaster.gpl
+	gcc tools/mkpal.c -DBUILD_TOOLS -o mkpal
+	./mkpal -g > raycaster.gpl
+	./mkpal -c > src/palette_luts.c
 
 #---------------------------------------------------------------------------------
 genrectab:
@@ -137,7 +140,7 @@ genrectab:
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(OUTPUT).elf $(OUTPUT).gba
+	@rm -fr $(BUILD) $(OUTPUT).elf $(OUTPUT).gba mkpal
 
 #---------------------------------------------------------------------------------
 else

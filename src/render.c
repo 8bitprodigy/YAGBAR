@@ -2,8 +2,8 @@
 #include "data.h"
 #include "math.h"
 #include "mgba.h"
+#include "palette.h"
 #include "render.h"
-
 #include "reciprocal_table.h"
 
 
@@ -30,14 +30,14 @@ YGR_Unit RENDER_RS_HEIGHT_FN(s16 x, s16 y);
 *******************************************************************************/
 static u8                    _RENDER_visibleSprites[RENDER_NUM_VISIBLE_SPRITES];
 static YGR_Unit              _RENDER_spriteDist[RENDER_NUM_VISIBLE_SPRITES];
-static u8                    _RENDER_spriteCount;
-static YGR_Unit              _RENDER_depthBuf[2][RENDER_W]      = {0, 0};
-static YGR_Unit              _RENDER_flatsDepthBuf[2][SCREEN_H] = {0, 0};
-static u8                    _RENDER_wallTopBuf[2][RENDER_W]    = {0, 0};
+static u8                    _RENDER_spriteCount                = 0;
+static YGR_Unit              _RENDER_depthBuf[2][RENDER_W]      = {0};
+static YGR_Unit              _RENDER_flatsDepthBuf[2][SCREEN_H] = {0};
+static u8                    _RENDER_wallTopBuf[2][RENDER_W]    = {0};
 static u8                    _RENDER_wallTopMin[2]              = {0};
-static u8                    _RENDER_wallBotBuf[2][RENDER_W]    = {0, 0};
+static u8                    _RENDER_wallBotBuf[2][RENDER_W]    = {0};
 static u8                    _RENDER_wallBotMin[2]              = {0};
-static s8                    _RENDER_flatsShadeBuf[2][SCREEN_H] = {0, 0};
+static s8                    _RENDER_flatsShadeBuf[2][SCREEN_H] = {0};
 static YGR_Camera           *_RENDER_camera                     = NULL;
 static RENDER_ArrayFunction  _RENDER_floorFunction              = NULL;
 static RENDER_ArrayFunction  _RENDER_ceilFunction               = NULL;
@@ -236,7 +236,7 @@ _RENDER_drawSprites()
         if (sx0 == -1) continue;
 
         /* draw horizontally row by row */
-        u8  shade   = (u8)(depth >> DEPTH_SHIFT_AMOUNT);
+        s8  shade   = (s8)MATH_clamp((depth >> DEPTH_SHIFT_AMOUNT), -16, 16);
         s16 texel_w = MATH_fast_div(sprite_w, spr_w);
         register s32 rcp_h = (sprite_h < DEPTH_RECIPROCAL_SIZE) 
                 ? depth_reciprocal[sprite_h] 
@@ -257,12 +257,14 @@ _RENDER_drawSprites()
                     u8 color = texture[ty * spr_w + tx];
                     if (color == RENDER_PAL_TRANSPARENT) continue;
 #if DEPTH_SHADE_SPRITES
+/*
                     register u8  base       = color & 0xF0;
                     register s16 shaded     = (s16)color - (s16)shade;
                     shaded                 &= ~(shaded >> 15);
                     register s16 below_base = shaded - (s16)base;
                     shaded                 &= ~(below_base >> 15);
-                    color                   = (u8)shaded;
+//*/
+                    color                   = darkLut[color][shade];//(u8)shaded;
 #endif /* DEPTH_SHADE_SPRITES */
                     register u16 *addr = _RENDER_drawBuf + ((sy * (SCREEN_W >> 1)) + sx);
                     *addr     = color | (color << 8);
@@ -377,12 +379,14 @@ _RENDER_wallPixel(RENDER_PixelInfo *p)
 
 #if (DEPTH_SHADE_WALLS || USE_SIDE_SHADING)
     /* Clamp color to within row */
+/*
     base        = color & 0xF0;
     shaded      = (s16)color - (s16)p->shading;
     shaded     &= ~(shaded >> 15);               // clamp to 0 if negative
     below_base  = shaded - (s16)base;
     shaded     &= ~(below_base >> 15);           // clamp to 0 if crossed row boundary
-    color       = (u8)shaded;
+//*/
+    color       = darkLut[color][p->shading];//(u8)shaded;
 #endif /* DEPTH_SHADE_WALLS || USE_SIDE_SHADING */
 
     //u16 *addr = _RENDER_drawBuf + (u16)((p->position.y * SCREEN_W + p->position.x * 2) >> 1);
@@ -415,12 +419,14 @@ _RENDER_flatsPixel(RENDER_PixelInfo *p)
 #endif /* TEXTURED_FLOORS */
 #if DEPTH_SHADE_FLOOR
         /* Clamp color to within row */
+/*
         base        = color & 0xF0;
         shaded      = color - p->shading;
         shaded     &= ~(shaded >> 15);               // clamp to 0 if negative
         below_base  = shaded - (s16)base;
         shaded     &= ~(below_base >> 15);           // clamp to 0 if crossed row boundary
-        color       = (u8)shaded;
+//*/
+        color       = darkLut[color][p->shading];//(u8)shaded;
 #endif /* DEPTH_SHADE_FLOOR */
 
     }
@@ -434,12 +440,14 @@ _RENDER_flatsPixel(RENDER_PixelInfo *p)
 #endif /* TEXTURED_CEILING */
 #if DEPTH_SHADE_CEILING
         /* Clamp color to within row */
+/*
         base        = color & 0xF0;
         shaded      = color - p->shading;
         shaded     &= ~(shaded >> 15);               // clamp to 0 if negative
         below_base  = shaded - (s16)base;
         shaded     &= ~(below_base >> 15);           // clamp to 0 if crossed row boundary
-        color       = (u8)shaded;
+//*/
+        color       = darkLut[color][p->shading];//(u8)shaded;
 #endif /* DEPTH_SHADE_CEILING */
     }
 
@@ -522,7 +530,7 @@ _RENDER_precomputeFlatsDepths(void)
             RENDER_PixelInfo p;
             p.is_floor    = (y >= horizon);
             p.is_wall     = 0;
-            p.shading     = shade;
+            p.shading     = MATH_clamp(shade, -16, 16);
             p.position.y  = y;
             p.destination = _RENDER_drawBuf + (y * (SCREEN_W >> 1));
 
@@ -726,20 +734,20 @@ _RENDER_drawWall(
 
 #if (DEPTH_SHADE_WALLS || USE_SIDE_SHADING)
     /*  BEGIN SHADE ASSIGNMENT */
-        pixelInfo->shading = 
-        #if USE_SIDE_SHADING == 1
-            // Side-faces (N/S vs E/W) get a subtle brightness boost.
-            1 - (pixelInfo->hit.direction & 1)
-        #else  
-            4 - (pixelInfo->hit.direction)
-        #endif /* USE_SIDE_SHADING */
-        #if (USE_SIDE_SHADING && DEPTH_SHADE_WALLS)
+        pixelInfo->shading = (s8)MATH_clamp( (
+    #if USE_SIDE_SHADING == 1
+                // Side-faces (N/S vs E/W) get a subtle brightness boost.
+                1 - (pixelInfo->hit.direction & 1)
+    #elif USE_SIDE_SHADING == 2 
+                4 - (pixelInfo->hit.direction)
+    #endif /* USE_SIDE_SHADING */
+    #if (USE_SIDE_SHADING && DEPTH_SHADE_WALLS)
                 +
-        #endif /* USE_SIDE_SHADING && DEPTH_SHADE_WALLS */
-        #if DEPTH_SHADE_WALLS
+    #endif /* USE_SIDE_SHADING && DEPTH_SHADE_WALLS */
+    #if DEPTH_SHADE_WALLS
                 (pixelInfo->depth >> DEPTH_SHIFT_AMOUNT)
-        #endif /* DEPTH_SHADE_WALLS */
-            ;
+    #endif /* DEPTH_SHADE_WALLS */
+            ), -16, 16);
     /*  END SHADE ASSIGNMENT */
 #endif /* DEPTH_SHADE_WALLS || USE_SIDE_SHADING */
 

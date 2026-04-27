@@ -93,7 +93,7 @@ heightAt(s16 x, s16 y)
 
 IWRAM_CODE
 static inline void
-sortSprites()
+sortSprites(void)
 {
     YGR_Vec2 cam_pos = _RENDER_camera->position;
     YGR_Vec2 cam_dir = MATH_angleToDirection(_RENDER_camera->angle);
@@ -133,7 +133,7 @@ sortSprites()
 
 IWRAM_CODE
 static void
-_RENDER_drawSprites()
+_RENDER_drawSprites(void)
 {
     sortSprites();
 
@@ -146,7 +146,7 @@ _RENDER_drawSprites()
 
     for (u8 si = 0; si < _RENDER_spriteCount; si++) {
         YGR_Entity *ent = &YGR_entities[_RENDER_visibleSprites[si]];
-
+        if (ent->sprite_index < 0) continue;
         /* Transform into camera space */
         YGR_Unit 
             rel_x = ent->position.x - cam_pos.x,

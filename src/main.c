@@ -30,13 +30,15 @@
 /*
 static u16 *drawBuf;
 */
-static u16  *drawBuf;
-static u16   pal_backup[256];
-static char  dbg_str[16];
-static u8    show_palette = 0;
-static u8    use_textures = 0;
-static u8    my_color = 0;
-static YGR_Unit cam_height = CAMERA_HEIGHT;
+static u16        *drawBuf;
+static u16         pal_backup[256];
+static char        dbg_str[16];
+static u8          show_palette = 0;
+static u8          use_textures = 0;
+static u8          my_color = 0;
+static YGR_Unit    cam_height = CAMERA_HEIGHT;
+static YGR_Entity *player;
+static YGR_Camera  camera;
  
 // Write a single 8-bit palette index into Mode 4 VRAM.
 // Mode 4 VRAM is halfword-addressed: each u16 holds two side-by-side pixels.
@@ -120,37 +122,51 @@ flatColumnFunc(
 
 void initEntities(void)
 {
-    YGR_entityCount = 0;
+    YGR_entityCount = 3;
+    player = &YGR_entities[0];
 
-    YGR_entities[0].position.x   = 3 * YGR_UNITS_PER_SQUARE;
-    YGR_entities[0].position.y   = 3 * YGR_UNITS_PER_SQUARE;
-    YGR_entities[0].z            = YGR_UNITS_PER_SQUARE - 256;
-    YGR_entities[0].sprite_index = 0;
-    YGR_entities[0].flags = 0;
-
-    YGR_entities[1].position.x   = 5 * YGR_UNITS_PER_SQUARE;
-    YGR_entities[1].position.y   = 5 * YGR_UNITS_PER_SQUARE;
-    YGR_entities[1].z            = YGR_UNITS_PER_SQUARE - 256;
-    YGR_entities[1].sprite_index = 1;
-    YGR_entities[1].flags = 0;
     
-    YGR_entities[2].position.x   = 8 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[0].position     = camera.position;
+    YGR_entities[0].radius       = YGR_UNITS_PER_SQUARE >> 3;
+    YGR_entities[0].slides       = 4;
+    YGR_entities[0].z            = YGR_UNITS_PER_SQUARE - 256;
+    YGR_entities[0].sprite_index = -1;
+    YGR_entities[0].flags = 0;
+    
+    YGR_entities[1].position.x   = 3 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[1].position.y   = 3 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[0].radius       = YGR_UNITS_PER_SQUARE >> 3;
+    YGR_entities[1].z            = YGR_UNITS_PER_SQUARE - 256;
+    YGR_entities[1].sprite_index = 0;
+    YGR_entities[1].flags = 0;
+
+    YGR_entities[2].position.x   = 5 * YGR_UNITS_PER_SQUARE;
     YGR_entities[2].position.y   = 5 * YGR_UNITS_PER_SQUARE;
-    YGR_entities[2].z            = YGR_UNITS_PER_SQUARE;
-    YGR_entities[2].sprite_index = 2;
+    YGR_entities[0].radius       = YGR_UNITS_PER_SQUARE >> 3;
+    YGR_entities[2].z            = YGR_UNITS_PER_SQUARE - 256;
+    YGR_entities[2].sprite_index = 1;
     YGR_entities[2].flags = 0;
     
-    YGR_entities[3].position.x   = 3 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[3].position.x   = 8 * YGR_UNITS_PER_SQUARE;
     YGR_entities[3].position.y   = 5 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[0].radius       = YGR_UNITS_PER_SQUARE >> 3;
     YGR_entities[3].z            = YGR_UNITS_PER_SQUARE;
-    YGR_entities[3].sprite_index = 3;
+    YGR_entities[3].sprite_index = 2;
     YGR_entities[3].flags = 0;
     
-    YGR_entities[4].position.x   = 5 * YGR_UNITS_PER_SQUARE;
-    YGR_entities[4].position.y   = 3 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[4].position.x   = 3 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[4].position.y   = 5 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[0].radius       = YGR_UNITS_PER_SQUARE >> 2;
     YGR_entities[4].z            = YGR_UNITS_PER_SQUARE;
-    YGR_entities[4].sprite_index = 4;
+    YGR_entities[4].sprite_index = 3;
     YGR_entities[4].flags = 0;
+    
+    YGR_entities[5].position.x   = 5 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[5].position.y   = 3 * YGR_UNITS_PER_SQUARE;
+    YGR_entities[0].radius       = YGR_UNITS_PER_SQUARE >> 2;
+    YGR_entities[5].z            = YGR_UNITS_PER_SQUARE;
+    YGR_entities[5].sprite_index = 4;
+    YGR_entities[5].flags = 0;
 }
  
 // ---------------------------------------------------------------------------
@@ -193,7 +209,7 @@ handleInput(YGR_Camera *cam)
     register YGR_Unit turn_speed = (TURN_SPEED * MATH_fast_div(YGR_deltaTime, YGR_UNITS_PER_SQUARE << 3));
     register YGR_Unit move_cos   = MATH_fast_div(MATH_cos(cam_angle) * move_speed, YGR_UNITS_PER_SQUARE);
     register YGR_Unit move_sin   = MATH_fast_div(MATH_sin(cam_angle) * move_speed, YGR_UNITS_PER_SQUARE);
- 
+    YGR_CollisionInfo info;
     // Strafe
     if (key_is_down(KEY_LEFT)) {
         dy += move_cos;
@@ -213,14 +229,14 @@ handleInput(YGR_Camera *cam)
         dy -= move_sin;
         dx += move_cos;
     }
-
+/*
     // Move camera up/down
     if (key_is_down(KEY_L)) cam_height-=move_speed;
     if (key_is_down(KEY_R)) cam_height+=move_speed;
     cam_height = MATH_clamp(cam_height, 512, (YGR_UNITS_PER_SQUARE<<1)-256);
-    
+//*/
     /* Look up/down */
-/*
+//*
     if (key_is_down(KEY_L)) cam->shear-=TURN_SPEED>>1;
     if (key_is_down(KEY_R)) cam->shear+=TURN_SPEED>>1;
     cam->shear = MATH_clamp(cam->shear, -YGR_UNITS_PER_SQUARE >> 3, YGR_UNITS_PER_SQUARE >> 3);
@@ -237,7 +253,8 @@ handleInput(YGR_Camera *cam)
     }
     if (key_hit(KEY_START))  cam_height = YGR_UNITS_PER_SQUARE;
  
-    // Collision check: only move if destination square is open
+    /* Collision check: only move if destination square is open */
+/*
     if (dx || dy)
     {
         int nx = MATH_divRoundDown(cam->position.x + dx, YGR_UNITS_PER_SQUARE);
@@ -257,6 +274,17 @@ handleInput(YGR_Camera *cam)
             cam->position.y += dy;
         }
     }
+//*/
+    YGR_moveEntity(
+            level, 
+            player, 
+            (YGR_Vec2){
+                    player->position.x + dx, 
+                    player->position.y + dy
+                }, 
+            &info
+        );
+    camera.position = player->position;
 }
 
 // ---------------------------------------------------------------------------
@@ -285,10 +313,9 @@ main(void)
 #endif /* DEBUG_PROFILE */
     
     // Camera initial state
-    YGR_Camera camera;
     YGR_initCamera(&camera);
-    camera.position.x   = 2 * YGR_UNITS_PER_SQUARE + (YGR_UNITS_PER_SQUARE >> 1);
-    camera.position.y   = 2 * YGR_UNITS_PER_SQUARE + (YGR_UNITS_PER_SQUARE >> 1);
+    camera.position.x   = 2 * YGR_UNITS_PER_SQUARE;
+    camera.position.y   = 2 * YGR_UNITS_PER_SQUARE;
     camera.angle        = 0;
     camera.resolution.x = RENDER_W;
     camera.resolution.y = SCREEN_H;

@@ -90,12 +90,13 @@ YGR_Entity
     YGR_Unit 
         z,
         radius;
-    u16         sprite_index;
+    s16         sprite_index;
     u8
         kind,
         state,
         health,
         armor,
+        slides,
         target;
     union {
         u8 flags;
@@ -110,6 +111,19 @@ YGR_Entity
     };
 }
 YGR_Entity;
+
+
+typedef struct
+{
+    YGR_Vec2 position;
+    YGR_Vec2 normal;
+    bool     end_or_wall;
+    union {
+        s8 *wall;
+        YGR_Entity *entity;
+    };
+}
+YGR_CollisionInfo;
 
 
 #ifdef DEBUG
@@ -132,6 +146,14 @@ extern YGR_Unit YGR_deltaTime;
 extern u32      YGR_globalTime;
 void
 YGR_tick(void);
+
+void
+YGR_moveEntity(
+    s8                *level, 
+    YGR_Entity        *entity, 
+    YGR_Vec2           destination, 
+    YGR_CollisionInfo *info
+);
 
 /*
     THINKER METHODS

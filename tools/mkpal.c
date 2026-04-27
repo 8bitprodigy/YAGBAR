@@ -95,7 +95,7 @@ populateRGBPalette(void)
 }
 
 void
-gimp_palette(void)
+gimpPalette(void)
 {
     printf("GIMP Palette\nName: GBAraycaster\nColumns: 16\n#\n");
     for (int i = 0; i < 256; i++) {
@@ -171,7 +171,7 @@ handleArgs(int argc, char **argv)
 		if (argv[i][0] == '-') {
 			switch (argv[i][1]) {
 			case 'g':
-				gimp_palette();
+				gimpPalette();
 				break;
 			case 'c':
 			    genCSource();

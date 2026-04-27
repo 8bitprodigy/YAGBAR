@@ -309,4 +309,36 @@ MATH_pointIsLeftOfRay(YGR_Vec2 point, YGR_Ray ray)
 }
 
 
+/*******************************************************************************
+    COLLISION
+*******************************************************************************/
+static inline
+bool
+MATH_aabbCollision(YGR_Entity *a, YGR_Entity *b) {
+    YGR_Unit
+        ax = a->position.x, 
+        ay = a->position.y,
+        ar = a->radius,
+        bx = b->position.x, 
+        by = b->position.y,
+        br = b->radius;
+    return (ax - ar < bx + br)
+        && (ax + ar > bx - br)
+        && (ay - ar < by + br)
+        && (ay + ar > by - br);
+}
+
+static inline
+bool
+MATH_circleCollision(YGR_Entity *a, YGR_Entity *b)
+{
+    s32
+        dx      = a->position.x - b->position.x,
+        dy      = a->position.y - b->position.y,
+        dist_sq = dx * dx + dy * dy,
+        rad_sum = a->radius + b->radius;
+        return dist_sq < rad_sum * rad_sum;
+}
+
+
 #endif /* YGR_MATH_H */

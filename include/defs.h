@@ -29,7 +29,6 @@
 	RENDER CONSTANTS / FLAGS
 *******************************************************************************/
 #define RENDER_PIXEL_FUNCTION             pixelFunc
-#define RENDER_RS_HEIGHT_FN               YGR_heightAt
 #define RENDER_COMPUTE_FLOOR_DEPTH        0
 #define RENDER_COMPUTE_CEILING_DEPTH      0
 #define RENDER_COMPUTE_FLOOR_TEXCOORDS    0
@@ -71,7 +70,7 @@
 #define SCREEN_W      240
 #define SCREEN_H      160
 #define RENDER_W      (120)
-#define CAMERA_HEIGHT (YGR_UNITS_PER_SQUARE)//((YGR_UNITS_PER_SQUARE >> 3) * 10)
+#define CAMERA_HEIGHT (YGR_UNITS_PER_SQUARE >> 1)//((YGR_UNITS_PER_SQUARE >> 3) * 10)
 #define TURN_SPEED    (8)   // RENDER angle units per frame
 #define MOVE_SPEED    (12)   // RENDER sub-units per frame  (~0.3 squares)
 

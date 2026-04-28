@@ -65,8 +65,8 @@ YGR_heightAt(s16 x, s16 y)
 {
     YGR_Unit index = y * LEVEL_W + x;
     if (index < 0 || index >= LEVEL_W * LEVEL_H)
-        return YGR_UNITS_PER_SQUARE * 2;   // treat out-of-bounds as wall
-    return level[index] * YGR_UNITS_PER_SQUARE * 2;
+        return YGR_UNITS_PER_SQUARE;   // treat out-of-bounds as wall
+    return level[index] * YGR_UNITS_PER_SQUARE;
 }
 
 

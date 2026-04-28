@@ -270,7 +270,6 @@ RENDER_mapToScreen(
 void 
 RENDER_castRayMultiHit(
     YGR_Ray                ray, 
-    RENDER_ArrayFunction   array_func,
     RENDER_ArrayFunction   type_func, 
     RENDER_HitResult      *hit_results,
     u16                   *hit_results_len, 
@@ -317,12 +316,9 @@ RENDER_perspectiveScaleHorizontalInverse(YGR_Unit original_size, YGR_Unit scaled
         rendering should also be faster as fewer intersections will be tested)
 */
 void 
-RENDER_renderSimple(
-  YGR_Camera           *cam, 
-  RENDER_ArrayFunction  floorHeightFunc,
-  RENDER_ArrayFunction  typeFunc, 
-  RENDER_ArrayFunction  rollFunc,
-  YGR_RayConstraints    constraints
+RENDER_render(
+    YGR_Camera         *cam, 
+    YGR_RayConstraints  constraints
 );
 
 /*  Function that moves given camera and makes it collide with walls and

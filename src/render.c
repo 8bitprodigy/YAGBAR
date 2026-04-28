@@ -22,8 +22,6 @@ RENDER_COLUMN_FUNCTION(
 );
 #endif /* RENDER_COLUMN_FUNCTION */
 
-YGR_Unit RENDER_RS_HEIGHT_FN(s16 x, s16 y);
-
 
 /*******************************************************************************
 	Global helper variables, for precomputing stuff etc.
@@ -68,22 +66,19 @@ _RENDER_fovCorrectionFactor(YGR_Unit fov);
 *******************************************************************************/
 __attribute__((constructor))
 void
-RENDER_init(void)
+_RENDER_startup(void)
 {
-    _RENDER_drawBuf = (u16*)(MEM_VRAM + 0xA000);;
+    irq_add(II_VBLANK, NULL);
+    // --- Video mode 4, BG2 enabled, page-flip capable ---
+    REG_DISPCNT = DCNT_MODE4 | DCNT_BG2 | DCNT_OBJ;
+    setupPalette();
     
-    for (int i = 0; i < 2; i++) {
-        for (int j = 0; j < RENDER_W; j++) {
-            _RENDER_depthBuf[i][j]   = YGR_INFINITY;
-            _RENDER_wallTopBuf[i][j] = 0;
-            _RENDER_wallBotBuf[i][j] = SCREEN_H+1;
-        }
-    }
+    RENDER_init();
 }
 
 static inline
 YGR_Unit 
-heightAt(s16 x, s16 y)
+_RENDER_heightAt(s16 x, s16 y)
 {
     YGR_Unit index = y * LEVEL_W + x;
     if (index < 0 || index >= LEVEL_W * LEVEL_H)
@@ -175,7 +170,7 @@ _RENDER_drawSprites(void)
         /* Screen height */
         s16 sprite_h = (s16)MATH_fast_div(
                 RENDER_perspectiveScaleVertical(RH, depth) * spr_h,
-                YGR_MAX_SPRITE_HEIGHT
+                YGR_MAX_SPRITE_HEIGHT 
             ) << 1;
         if (sprite_h <= 0) continue;
 
@@ -188,11 +183,13 @@ _RENDER_drawSprites(void)
         s16
             draw_x0 = screen_x          - (sprite_w >> 1),
             draw_x1 = screen_x          + (sprite_w >> 1);
-        YGR_Unit world_offset = ent->z - _RENDER_camera->height;
+        YGR_Unit world_offset = ent->z 
+                + ((spr_h * (YGR_UNITS_PER_SQUARE/YGR_MAX_SPRITE_HEIGHT)) >> 1)
+                - _RENDER_camera->height;
         s16 
             screen_center_y = _RENDER_middleRow 
-                    - (s16)RENDER_perspectiveScaleVertical(world_offset, depth) 
-                    * RH / YGR_UNITS_PER_SQUARE,
+                    - (s16)RENDER_perspectiveScaleVertical(world_offset, depth)
+                    * RH / (YGR_UNITS_PER_SQUARE),
 
             draw_y0 = screen_center_y - (sprite_h >> 1),
             draw_y1 = screen_center_y + (sprite_h >> 1);
@@ -249,6 +246,7 @@ _RENDER_drawSprites(void)
             /* When the sprite texel width is 1 pixel or less */
             for (u8 sy = draw_y0; sy < draw_y1; sy++) {
                 if (sy < 0 || sy >= RH) continue;
+                if (_RENDER_flatsDepthBuf[sy] < depth)  continue;
 
                 u8 ty = (u8)(((s32)(sy - draw_y0) * spr_h * rcp_h) >> 10);
 
@@ -461,7 +459,7 @@ static inline
 YGR_Unit 
 _RENDER_floorCeilFunction(s16 x, s16 y)
 {
-    YGR_Unit f = _RENDER_floorFunction(x,y);
+    YGR_Unit f = YGR_heightAt(x,y);
 
     if (_RENDER_ceilFunction == 0)
         return f;
@@ -473,9 +471,9 @@ _RENDER_floorCeilFunction(s16 x, s16 y)
 
 static inline
 YGR_Unit 
-_floorHeightNotZeroFunction(s16 x, s16 y)
+_RENDER_floorHeightNotZeroFunction(s16 x, s16 y)
 {
-    return (RENDER_RS_HEIGHT_FN(x,y) == 0) 
+    return (_RENDER_heightAt(x,y) == 0) 
         ? 0 
         : MATH_nonZero((x & 0x00FF) | ((y & 0x00FF) << 8));
         // ^ this makes collisions between all squares - needed for rolling doors
@@ -827,9 +825,9 @@ _RENDER_columnFunction(
 
                 YGR_Unit texCoordMod = MATH_fast_mod(hit.texture_coord, YGR_UNITS_PER_SQUARE);
 
-                s8 unrolled = hit.doorRoll >= 0 ?
-                (hit.doorRoll > texCoordMod) :
-                (texCoordMod > YGR_UNITS_PER_SQUARE + hit.doorRoll);
+                s8 unrolled = hit.doorRoll >= 0 
+                    ? (hit.doorRoll > texCoordMod) 
+                    : (texCoordMod > YGR_UNITS_PER_SQUARE + hit.doorRoll);
 
                 if (unrolled)
                 {
@@ -860,7 +858,7 @@ _RENDER_columnFunction(
         if (goOn) {
             dist = hit.distance;
 
-            YGR_Unit wallHeightWorld = _RENDER_floorFunction(hit.square.x,hit.square.y);
+            YGR_Unit wallHeightWorld = YGR_heightAt(hit.square.x,hit.square.y);
 
             if (wallHeightWorld < 0) {
                 /* We can't just do wallHeightWorld = max(0,wallHeightWorld) because
@@ -877,7 +875,7 @@ _RENDER_columnFunction(
                             RENDER_perspectiveScaleVertical(worldPointTop,dist)
                             * _RENDER_camera->resolution.y
                         ),
-                    YGR_UNITS_PER_SQUARE
+                    YGR_UNITS_PER_SQUARE >> 1
                 );
 
             wallEnd =  _RENDER_middleRow - MATH_fast_div(
@@ -885,7 +883,7 @@ _RENDER_columnFunction(
                             RENDER_perspectiveScaleVertical(worldPointBottom,dist)
                             * _RENDER_camera->resolution.y
                         ), 
-                    YGR_UNITS_PER_SQUARE
+                    YGR_UNITS_PER_SQUARE >> 1
                 );
 
             wallHeightScreen = wallEnd - wallStart;
@@ -1067,10 +1065,9 @@ IWRAM_CODE
 static inline
 void 
 _RENDER_castRaysMultiHit(
-    RENDER_ArrayFunction   arrayFunc,
-    RENDER_ArrayFunction   typeFunction, 
-    RENDER_ColumnFunction  columnFunc,
-    YGR_RayConstraints     constraints
+    RENDER_ArrayFunction  arrayFunc,
+    RENDER_ArrayFunction  typeFunction, 
+    YGR_RayConstraints    constraints
 )
 {
     YGR_Unit angle      = _RENDER_camera->angle;
@@ -1114,9 +1111,15 @@ _RENDER_castRaysMultiHit(
         r.direction.x = dir1.x + MATH_fast_div(currentDX, resolution.x);
         r.direction.y = dir1.y + MATH_fast_div(currentDY, resolution.x);
 
-        RENDER_castRayMultiHit(r,arrayFunc,typeFunction,hits,&hitCount,constraints);
+        RENDER_castRayMultiHit(
+                r,
+                typeFunction,
+                hits,
+                &hitCount,
+                constraints
+            );
 
-        columnFunc(hits,hitCount,i,r);
+        _RENDER_columnFunction(hits,hitCount,i,r);
 
         currentDX += dX;
         currentDY += dY;
@@ -1127,6 +1130,21 @@ _RENDER_castRaysMultiHit(
 /*******************************************************************************
     PUBLIC METHODS
 *******************************************************************************/
+void
+RENDER_init(void)
+{
+    
+    _RENDER_drawBuf = (u16*)(MEM_VRAM + 0xA000);;
+    
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < RENDER_W; j++) {
+            _RENDER_depthBuf[i][j]   = YGR_INFINITY;
+            _RENDER_wallTopBuf[i][j] = 0;
+            _RENDER_wallBotBuf[i][j] = SCREEN_H+1;
+        }
+    }
+}
+
 IWRAM_CODE 
 void 
 RENDER_plot(u8 x, u8 y, u8 clr)
@@ -1197,7 +1215,6 @@ IWRAM_CODE
 void 
 RENDER_castRayMultiHit(
     YGR_Ray ray, 
-    RENDER_ArrayFunction arrayFunc,
     RENDER_ArrayFunction typeFunc, 
     RENDER_HitResult *hitResults,
     u16 *hitResultsLen, 
@@ -1212,7 +1229,7 @@ RENDER_castRayMultiHit(
 
     *hitResultsLen = 0;
 
-    YGR_Unit squareType = arrayFunc(currentSquare.x,currentSquare.y);
+    YGR_Unit squareType = _RENDER_floorHeightNotZeroFunction(currentSquare.x,currentSquare.y);
 
     // DDA variables
     YGR_Vec2 nextSideDist; // dist. from start to the next side in given axis
@@ -1284,7 +1301,7 @@ RENDER_castRayMultiHit(
     // ^ we precompute reciprocals to avoid divisions in the loop
 
     for (u16 i = 0; i < constraints.max_steps; ++i) {
-        YGR_Unit currentType = RENDER_RS_HEIGHT_FN(currentSquare.x,currentSquare.y);
+        YGR_Unit currentType = _RENDER_heightAt(currentSquare.x,currentSquare.y);
 
         if (MATH_unlikely(currentType != squareType)) {
             // collision
@@ -1431,7 +1448,7 @@ RENDER_castRay(YGR_Ray ray, RENDER_ArrayFunction arrayFunc)
     c.max_steps = 1000;
     c.max_hits = 1;
 
-    RENDER_castRayMultiHit(ray,arrayFunc,0,&result,&len,c);
+    RENDER_castRayMultiHit(ray,0,&result,&len,c);
 
     if (len == 0)
         result.distance = -1;
@@ -1442,20 +1459,16 @@ RENDER_castRay(YGR_Ray ray, RENDER_ArrayFunction arrayFunc)
 
 IWRAM_CODE 
 void 
-RENDER_renderSimple(
+RENDER_render(
     YGR_Camera           *cam, 
-    RENDER_ArrayFunction  floorHeightFunc,
-    RENDER_ArrayFunction  typeFunc, 
-    RENDER_ArrayFunction  rollFunc,
     YGR_RayConstraints    constraints
 )
 {
     YGR_Vec2 cam_res = cam->resolution;
-    _RENDER_floorFunction            = floorHeightFunc;
     _RENDER_camera                   = cam;
     _RENDER_camResYLimit             = cam_res.y - 1;
     _RENDER_middleRow                = (cam_res.y >> 1) + cam->shear;
-    _RENDER_rollFunction             = rollFunc;
+    _RENDER_rollFunction             = 0;
     _RENDER_wallTopMin[_RENDER_page] = SCREEN_H;
     _RENDER_wallBotMin[_RENDER_page] = 0;
 
@@ -1490,9 +1503,8 @@ RENDER_renderSimple(
     _RENDER_precomputeFlatsDepths();
     
     _RENDER_castRaysMultiHit(
-            _floorHeightNotZeroFunction,
-            typeFunc,
-            _RENDER_columnFunction, 
+            _RENDER_floorHeightNotZeroFunction,
+            0,
             constraints
         );
         
@@ -1614,7 +1626,7 @@ RENDER_castRay3D(
 
     YGR_Unit heightDiff = height2 - height1;
 
-    RENDER_castRayMultiHit(ray,floorHeightFunc,0,hits,&numHits,constraints);
+    RENDER_castRayMultiHit(ray,0,hits,&numHits,constraints);
 
     YGR_Unit result = YGR_UNITS_PER_SQUARE;
 
@@ -1649,7 +1661,7 @@ RENDER_castRay3D(
     
         startHeight = ceilingHeightFunc(squareX,squareY);
 
-        RENDER_castRayMultiHit(ray,ceilingHeightFunc,0,hits,&numHits,constraints);
+        RENDER_castRayMultiHit(ray,0,hits,&numHits,constraints);
 
         checkHits(<,result2)
 

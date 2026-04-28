@@ -122,51 +122,51 @@ flatColumnFunc(
 
 void initEntities(void)
 {
-    YGR_entityCount = 3;
+    YGR_entityCount = 6;
     player = &YGR_entities[0];
 
     
     YGR_entities[0].position     = camera.position;
     YGR_entities[0].radius       = YGR_UNITS_PER_SQUARE >> 3;
     YGR_entities[0].slides       = 4;
-    YGR_entities[0].z            = YGR_UNITS_PER_SQUARE - 256;
+    YGR_entities[0].z            = 0;
     YGR_entities[0].sprite_index = -1;
-    YGR_entities[0].flags = 0;
+    YGR_entities[0].flags        = 0;
     
     YGR_entities[1].position.x   = 3 * YGR_UNITS_PER_SQUARE;
     YGR_entities[1].position.y   = 3 * YGR_UNITS_PER_SQUARE;
     YGR_entities[0].radius       = YGR_UNITS_PER_SQUARE >> 3;
-    YGR_entities[1].z            = YGR_UNITS_PER_SQUARE - 256;
+    YGR_entities[1].z            = 0;
     YGR_entities[1].sprite_index = 0;
-    YGR_entities[1].flags = 0;
+    YGR_entities[1].flags        = 0;
 
     YGR_entities[2].position.x   = 5 * YGR_UNITS_PER_SQUARE;
     YGR_entities[2].position.y   = 5 * YGR_UNITS_PER_SQUARE;
     YGR_entities[0].radius       = YGR_UNITS_PER_SQUARE >> 3;
-    YGR_entities[2].z            = YGR_UNITS_PER_SQUARE - 256;
+    YGR_entities[2].z            = 0;
     YGR_entities[2].sprite_index = 1;
-    YGR_entities[2].flags = 0;
+    YGR_entities[2].flags        = 0;
     
     YGR_entities[3].position.x   = 8 * YGR_UNITS_PER_SQUARE;
     YGR_entities[3].position.y   = 5 * YGR_UNITS_PER_SQUARE;
     YGR_entities[0].radius       = YGR_UNITS_PER_SQUARE >> 3;
-    YGR_entities[3].z            = YGR_UNITS_PER_SQUARE;
+    YGR_entities[3].z            = 0;
     YGR_entities[3].sprite_index = 2;
-    YGR_entities[3].flags = 0;
+    YGR_entities[3].flags        = 0;
     
     YGR_entities[4].position.x   = 3 * YGR_UNITS_PER_SQUARE;
     YGR_entities[4].position.y   = 5 * YGR_UNITS_PER_SQUARE;
     YGR_entities[0].radius       = YGR_UNITS_PER_SQUARE >> 2;
-    YGR_entities[4].z            = YGR_UNITS_PER_SQUARE;
+    YGR_entities[4].z            = 0;
     YGR_entities[4].sprite_index = 3;
-    YGR_entities[4].flags = 0;
+    YGR_entities[4].flags        = 0;
     
     YGR_entities[5].position.x   = 5 * YGR_UNITS_PER_SQUARE;
     YGR_entities[5].position.y   = 3 * YGR_UNITS_PER_SQUARE;
     YGR_entities[0].radius       = YGR_UNITS_PER_SQUARE >> 2;
-    YGR_entities[5].z            = YGR_UNITS_PER_SQUARE;
+    YGR_entities[5].z            = 0;
     YGR_entities[5].sprite_index = 4;
-    YGR_entities[5].flags = 0;
+    YGR_entities[5].flags        = 0;
 }
  
 // ---------------------------------------------------------------------------
@@ -229,14 +229,14 @@ handleInput(YGR_Camera *cam)
         dy -= move_sin;
         dx += move_cos;
     }
-/*
+//*
     // Move camera up/down
-    if (key_is_down(KEY_L)) cam_height-=move_speed;
-    if (key_is_down(KEY_R)) cam_height+=move_speed;
-    cam_height = MATH_clamp(cam_height, 512, (YGR_UNITS_PER_SQUARE<<1)-256);
+    if (key_is_down(KEY_L)) cam_height-=turn_speed;
+    if (key_is_down(KEY_R)) cam_height+=turn_speed;
+    cam_height = MATH_clamp(cam_height, 128, (YGR_UNITS_PER_SQUARE)-128);
 //*/
     /* Look up/down */
-//*
+/*
     if (key_is_down(KEY_L)) cam->shear-=TURN_SPEED>>1;
     if (key_is_down(KEY_R)) cam->shear+=TURN_SPEED>>1;
     cam->shear = MATH_clamp(cam->shear, -YGR_UNITS_PER_SQUARE >> 3, YGR_UNITS_PER_SQUARE >> 3);
@@ -294,10 +294,7 @@ int
 main(void)
 {
     irq_init(NULL);
-    irq_add(II_VBLANK, NULL);
-    // --- Video mode 4, BG2 enabled, page-flip capable ---
-    REG_DISPCNT = DCNT_MODE4 | DCNT_BG2 | DCNT_OBJ;
-    setupPalette();
+    
     DBG_OUT(
             mgba_open();
         );
@@ -354,12 +351,12 @@ main(void)
         // Render scene into drawBuf via pixelFunc callback
         
         if (show_palette) drawPalette();
-        else RENDER_renderSimple(&camera, YGR_heightAt, 0, 0, rc);
+        else RENDER_render(&camera, rc);
 
         uint cycles = profile_stop();
 #if DEBUG_PROFILE
     if (!show_palette) {
-        siprintf(dbg_str, "%10u", cycles);
+        siprintf(dbg_str, "FPS:%2d", 16777216 / cycles);
         obj_puts2(0, 0, dbg_str, 0xF200, oe);
     }
     else obj_puts2(0, -16, dbg_str, 0xF200, oe);
